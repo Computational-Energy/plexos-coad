@@ -1,13 +1,13 @@
 from datetime import datetime
 import unittest
-from output import PlexosOutput
+from coad.output import PlexosOutput
 
 class TestPlexosSolution(unittest.TestCase):
 
     def test_create(self):
         """Verify the zip file is processed properly
         """
-        ps = PlexosOutput('test/mda_output.zip')
+        ps = PlexosOutput('coad/test/mda_output.zip')
         # Was data loaded
         cur = ps['Line']._dbcon.cursor()
         cur.execute("SELECT count(*) FROM data_0")
@@ -19,7 +19,7 @@ class TestPlexosSolution(unittest.TestCase):
     def test_object_values(self):
         """Verify object values are available
         """
-        ps = PlexosOutput('test/mda_output.zip')
+        ps = PlexosOutput('coad/test/mda_output.zip')
         expected = [-0.935319116500001, -0.6970154267499986, -0.5217735017499989,
                     -0.41615258650000153, -0.3980630747500005, -0.46516376499999984,
                     -0.7597340485000006, -1.2800584555000007, -1.812169899250002,
@@ -33,20 +33,20 @@ class TestPlexosSolution(unittest.TestCase):
     def test_object_times(self):
         """Verify object times are available
         """
-        ps = PlexosOutput('test/mda_output.zip')
+        ps = PlexosOutput('coad/test/mda_output.zip')
         expected = [datetime(2020, 4, 16, x) for x in range(24)]
         self.assertEqual(expected, ps['Line']['B1_B2'].get_data_times('Flow'))
 
     def test_object_unit(self):
         """Verify object property units are available
         """
-        ps = PlexosOutput('test/mda_output.zip')
+        ps = PlexosOutput('coad/test/mda_output.zip')
         self.assertEqual("kV", ps['Node']["B0"].get_data_unit("Voltage"))
 
     def test_class_data(self):
         """Verify class data is returned properly
         """
-        ps = PlexosOutput('test/mda_output.zip')
+        ps = PlexosOutput('coad/test/mda_output.zip')
         df = ps['Line'].get_data('Flow')
         dat = df.loc['2020-04-16 06:00:00']
         self.assertAlmostEqual(4.759734, dat['B0_B1'])
@@ -56,6 +56,6 @@ class TestPlexosSolution(unittest.TestCase):
     def test_class_data_limited(self):
         """Verify class data with a subset of objects is returned properly
         """
-        ps = PlexosOutput('test/mda_output.zip')
+        ps = PlexosOutput('coad/test/mda_output.zip')
         df = ps['Line'].get_data('Flow', object_names=['B0_B1', 'B1_B2'])
         self.assertEqual(['B0_B1', 'B1_B2'], list(df.columns.values))

@@ -1,5 +1,5 @@
-from COAD import COAD
-from ModelUtil import split_horizon, set_solver, get_horizon_slice
+from coad.COAD import COAD
+from coad.ModelUtil import split_horizon, set_solver, get_horizon_slice
 import unittest
 
 class TestModelUtil(unittest.TestCase):
@@ -7,7 +7,7 @@ class TestModelUtil(unittest.TestCase):
     #filename='master.xml'
     #filename='test/118-Bus.xml'
     #filename='test/Solar33P.db'
-    filename='test/Solar33P.xml'
+    filename='coad/test/Solar33P.xml'
     #filename='test/WFIP-MISO.xml'
     #filename='test/WWSIS.xml'
     self.coad=COAD(filename)
@@ -25,6 +25,8 @@ class TestModelUtil(unittest.TestCase):
     self.assertIn(self.coad['Horizon'][test_day_offset],self.coad['Model'][test_day_offset].get_children())
     self.assertEqual(43840.0,self.coad['Horizon'][test_day_offset]['Chrono Date From'])
     self.assertEqual(3.0,self.coad['Horizon'][test_day_offset]['Chrono Step Count'])
+    self.assertIn(self.coad['Model'][test_no_offset], self.coad['System']['WECC'].get_children('Model'))
+    self.assertIn(self.coad['Horizon'][test_no_offset], self.coad['System']['WECC'].get_children('Horizon'))
 
   def test_get_horizon_slice(self):
     test_no_offset = get_horizon_slice(self.coad,'M01 Cost Need 0603',8,7)

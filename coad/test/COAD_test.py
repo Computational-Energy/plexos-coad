@@ -1,4 +1,4 @@
-from COAD import COAD, ObjectDict
+from coad.COAD import COAD, ObjectDict
 import unittest
 
 class TestDB(unittest.TestCase):
@@ -6,7 +6,7 @@ class TestDB(unittest.TestCase):
     def setUp(self):
         # TODO: Move into setupclass for big files
         # May have to copy data in the write tests to avoid poisoning the other tests
-        filename='master.xml'
+        filename='coad/master.xml'
         #filename='test/118-Bus.xml'
         #filename='test/Solar33P.xml'
         #filename='test/WFIP-MISO.xml'
@@ -45,11 +45,11 @@ class TestDB(unittest.TestCase):
         self.assertEqual('.002',self.coad.get(identifier))
         self.coad.set(identifier,'.001')
         self.assertEqual('.001',self.coad.get(identifier))
-        self.coad.save('test/master_save_sqlite_mod.xml')
+        self.coad.save('coad/test/master_save_sqlite_mod.xml')
 
     def test_save(self):
-        self.coad.save('test/master_save_sqlite.xml')
-        newcoad = COAD('test/master_save_sqlite.xml')
+        self.coad.save('coad/test/master_save_sqlite.xml')
+        newcoad = COAD('coad/test/master_save_sqlite.xml')
         self.assertEqual(newcoad.get('Performance.Gurobi.SOLVER'),'4')
 
 
@@ -57,7 +57,7 @@ class TestObjectDict(unittest.TestCase):
     def setUp(self):
         # TODO: Move into setupclass for big files
         # May have to copy data in the write tests to avoid poisoning the other tests
-        filename='master.xml'
+        filename='coad/master.xml'
         #filename='test/118-Bus.xml'
         #filename='test/Solar33P.xml'
         #filename='test/WFIP-MISO.xml'
@@ -115,7 +115,7 @@ class TestObjectDictProperties(unittest.TestCase):
     def test_single_properties(self):
         '''Tests related to properties with a single value
         '''
-        filename='test/118-Bus.xml'
+        filename='coad/test/118-Bus.xml'
         coad=COAD(filename)
         # Get properties
         line = coad['Line']['126']
@@ -131,8 +131,8 @@ class TestObjectDictProperties(unittest.TestCase):
         line_a = coad['Line']['027']
         line_a.set_properties(new_props)
         # Test save and load
-        coad.save('test/118-Bus_props_test.xml')
-        solar = COAD('test/118-Bus_props_test.xml')
+        coad.save('coad/test/118-Bus_props_test.xml')
+        solar = COAD('coad/test/118-Bus_props_test.xml')
         props['Min Flow']='123456'
         line = solar['Line']['126']
         self.assertEqual(line.get_properties(), props)
@@ -142,7 +142,7 @@ class TestObjectDictProperties(unittest.TestCase):
     def test_multi_properties(self):
         '''Tests related to properties with a list of values
         '''
-        filename='test/RTS-96.xml'
+        filename='coad/test/RTS-96.xml'
         coad=COAD(filename)
         # Get properties
         g = coad['Generator']['101-1']
@@ -161,15 +161,11 @@ class TestObjectDictProperties(unittest.TestCase):
         g2 = coad['Generator']['123-3']
         g2.set_properties(new_props)
         # Test save and load
-        coad.save('test/RTS-96_props_test.xml')
-        saved_coad = COAD('test/RTS-96_props_test.xml')
+        coad.save('coad/test/RTS-96_props_test.xml')
+        saved_coad = COAD('coad/test/RTS-96_props_test.xml')
         props['Load Point'] = ['a', 'b', 'c', 'd']
         g = saved_coad['Generator']['101-1']
         self.assertEqual(g.get_properties(), props)
         g2 = saved_coad['Generator']['123-3']
         self.assertEqual(g2.get_property('Maintenance Rate'), new_props['Maintenance Rate'])
         self.assertEqual(g2.get_property('Heat Rate'), new_props['Heat Rate'])
-
-
-
-

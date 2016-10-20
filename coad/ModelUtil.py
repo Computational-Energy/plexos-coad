@@ -54,6 +54,9 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
                                               int(start_day_overlap), i)
         # New Model and Horizon have the same name
         new_model = model.copy(new_name)
+        # New Model needs to be added as child to System
+        sys_name = list(coad['System'].keys())[0]
+        coad["System"][sys_name].set_children(new_model, replace=False)
         horizon = model.get_children('Horizon')[0]
         new_horizon = horizon.copy(new_name)
         slices = get_horizon_slice(coad, model_name, num_partitions, i, start_day_overlap)
@@ -61,6 +64,8 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
             new_horizon[name] = val
         # Set this horizon as the horizon member of the new model object
         new_model.set_children(new_horizon)
+        # New Horizon needs to be added as child to System
+        coad["System"][sys_name].set_children(new_horizon, replace=False)
         if write_rindex_file:
             steps_per_day = get_steps_per_day(horizon)
             hor_start = new_horizon['Chrono Date From']
