@@ -35,7 +35,7 @@ class COAD(collections.MutableMapping):
 
     The class presents a map of class names to ClassDict objects
     '''
-    store = {}
+
     def __init__(self, filename=None, create_db_file=True):
         if filename is None:
             filename = os.path.abspath(os.path.dirname(__file__)) + os.sep + "master.xml"
@@ -50,6 +50,7 @@ class COAD(collections.MutableMapping):
             raise Exception('Invalid filename suffix')
         else:
             self.dbcon = plexos_database.load(filename, create_db_file=create_db_file)
+        self.store = dict()
         self.populate_store()
 
     def populate_store(self):
@@ -133,7 +134,28 @@ class COAD(collections.MutableMapping):
                 class name.object name.attribute name''')
         self[class_name][object_name][attribute_name] = value
 
-    def diff(self, otherfilename):
+    def diff(self, other_coad):
+        ''' Print a difference between two coad objects
+                For each key in each coad:
+                    Report differences in keys
+                    Report differences in values for each key
+        '''
+        other_keys = set(other_coad.keys())
+        self_keys = set(self.keys())
+        missing_keys = self_keys - other_keys
+        if missing_keys:
+            print("Missing keys: %s"%missing_keys)
+        extra_keys = other_keys - self_keys
+        if extra_keys:
+            print("Extra keys: %s"%extra_keys)
+        for key in self_keys & other_keys:
+            cls_diff = self[key].diff(other_coad[key])
+            if len(cls_diff) > 0:
+                print("Difference in ClassDict %s"%key)
+                for diff_msg in cls_diff:
+                    print("  %s"%diff_msg)
+
+    def diff_db(self, otherfilename):
         ''' Print a difference between two sqlite database files
                 For each table in each db:
                     Report differences in schema
@@ -214,9 +236,6 @@ class COAD(collections.MutableMapping):
     def __len__(self):
         return len(self.store)
 
-
-
-
 class ClassDict(collections.MutableMapping):
     '''
         meta is a dictionary describing the class to match the
@@ -263,6 +282,29 @@ class ClassDict(collections.MutableMapping):
 
     def __len__(self):
         return len(self.store)
+
+    def diff(self, other_class):
+        ''' Return a list of difference between two ClassDict objects
+
+        For each key in each ClassDict:
+            Report differences in keys
+            Report differences in ObjectDicts for each key
+        '''
+        diff_msg = []
+        other_keys = set(other_class.keys())
+        self_keys = set(self.keys())
+        missing_keys = self_keys - other_keys
+        if missing_keys:
+            diff_msg.append("Missing ClassDict keys: %s"%missing_keys)
+        extra_keys = other_keys - self_keys
+        if extra_keys:
+            diff_msg.append("Extra ClassDict keys: %s"%extra_keys)
+        for key in self_keys & other_keys:
+            obj_diff = self[key].diff(other_class[key])
+            if len(obj_diff) > 0:
+                diff_msg.append("Difference in ObjectDict %s"%key)
+                diff_msg += obj_diff
+        return diff_msg
 
 class ObjectDict(collections.MutableMapping):
     ''' Overwrites the setitem method to allow updates to data and dict
@@ -562,3 +604,47 @@ class ObjectDict(collections.MutableMapping):
         c_name = self.get_class().meta['name']
         for (key, val) in self.items():
             print('%s.%s.%s=%s'%(c_name, self.meta['name'], key, val))
+
+    def diff(self, other_obj):
+        ''' Return a list of differences between two ObjectDicts
+
+        For each key in each ObjectDict:
+            Report differences in keys
+            Report differences in values for each key
+
+        Compare Attribute Data
+        Compare Properties
+        Compare Children
+        '''
+        diff_msg = []
+        other_keys = set(other_obj.keys())
+        self_keys = set(self.keys())
+        missing_keys = self_keys - other_keys
+        if missing_keys:
+            diff_msg.append("  Missing ObjectDict keys: %s"%missing_keys)
+        extra_keys = other_keys - self_keys
+        if extra_keys:
+            diff_msg.append("  Extra ObjectDict keys: %s"%extra_keys)
+        for key in self_keys & other_keys:
+            if self[key] != other_obj[key]:
+                diff_msg.append("  Different Object Value for %s"%key)
+                diff_msg.append("    Orig: %s Comp: %s"%(self[key], other_obj[key]))
+        other_props = other_obj.get_properties()
+        self_props = self.get_properties()
+        other_props_keys = set(other_props.keys())
+        self_props_keys = set(self_props.keys())
+        missing_props = self_props_keys - other_props_keys
+        if missing_props:
+            diff_msg.append("  Missing ObjectDict props: %s"%missing_props)
+        extra_props = other_props_keys - self_props_keys
+        if extra_props:
+            diff_msg.append("  Extra ObjectDict props: %s"%extra_props)
+        for key in self_props_keys & other_props_keys:
+            if self_props[key] != other_props[key]:
+                diff_msg.append("  Different Property Value for %s"%key)
+                diff_msg.append("    Orig: %s Comp: %s"%(self_props[key], other_props[key]))
+        # Children diff
+        other_kids = other_obj.get_children()
+        self_kids = self.get_children()
+        # TODO: How to describe differences in children, name, id?
+        return diff_msg
