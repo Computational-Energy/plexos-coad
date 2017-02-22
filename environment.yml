@@ -5,5 +5,7 @@ dependencies:
   - numpy
   - pandas
   - cython
-  - pip:
-    - "--editable=git+https://github.nrel.gov/hsorense/plexos-coad.git#egg=coad"
+  - pymongo
+  - nose
+#  - pip:
+#    - "--editable=git+https://github.nrel.gov/hsorense/plexos-coad.git#egg=coad"

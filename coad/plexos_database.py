@@ -11,6 +11,7 @@ try:
     has_resource = True
 except ImportError: pass
 import sqlite3 as sql
+import sys
 import tempfile
 import time
 import xml.etree.cElementTree as etree
@@ -258,11 +259,8 @@ def save(dbcon, filename):
 
 
 def main():
-    """Init first argument as a PlexosSolution object."""
     logging.basicConfig(level=logging.INFO)
-    #ps = PlexosSolution("output_files/Model Base Solution.zip")
-    #ps.save(sys.argv[1]+"_new")
-    #ps.process_solution(
+    load(sys.argv[1])
 
 
 if __name__ == '__main__':
