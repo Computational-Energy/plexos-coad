@@ -127,7 +127,8 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
     LOGGER.info('Loaded %s documents in %d seconds',doc_count,(time.time()-start_time))
     # Indexes needed to speed up certain operations
     db['attribute'].create_index('object_id')
-    db['attribute_data'].create_index('object_id', 'attribute_id')
+    db['attribute_data'].create_index('object_id')
+    db['attribute_data'].create_index('attribute_id')
     db['data'].create_index('membership_id')
     db['data'].create_index('uid')
     db['membership'].create_index('parent_object_id')

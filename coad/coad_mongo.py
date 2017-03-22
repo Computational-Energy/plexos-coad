@@ -57,22 +57,11 @@ class COAD(collections.MutableMapping):
             if not filename.endswith('.xml'):
                 raise Exception('Invalid filename suffix')
             self.db = plexos_mongo.load(filename, host=host, port=port)
-        #self.store = dict()
-        #self.populate_store()
         # Add map of property ids to property names
         all_properties = self.db['property'].find({}, {'name':1, 'property_id':1, '_id':0})
         self.valid_properties = dict()
         for p in all_properties:
             self.valid_properties[p['property_id']] = p['name']
-
-    def populate_store(self):
-        ''' Populate this map with class names and pointers to their classDict
-            objects.
-        '''
-        #classes = self.db['class'].find({})
-        #for clsdoc in classes:
-        #    self.store[clsdoc['name']] = ClassDict(self, clsdoc)
-
 
     def save(self, filename):
         ''' Write current contents of database to xml
@@ -95,6 +84,16 @@ class COAD(collections.MutableMapping):
             object has object_id, class_id, object_name
             class has class_id,class_name
         '''
+        objects = self.db['object'].find({'name':objname}, {'class_id':1, 'object_id':1, '_id':0})
+        for obj in objects:
+            clsdict =  self.db['object'].find_one({'class_id': obj['class_id']}, {'name':1, '_id':0})
+            attributes = self.db['attribute'].find({'class_id':obj['class_id']}, {'name':1, 'attribute_id':1, '_id':0})
+            for att in attributes:
+                att_data = self.db['attribute_data'].find_one({'attribute_id':att['attribute_id'], 'object_id':obj['object_id']}, {'value':1, '_id':0})
+                if att_data is not None:
+                    print('%s.%s.%s=%s'%(clsdict['name'], objname, att['name'], att_data['value']))
+
+        return
         #with sql.connect(self.dbfilename) as con:
         cur = self.dbcon.cursor()
         sel = '''SELECT c.name as class_name, o.name as objname,
@@ -161,91 +160,22 @@ class COAD(collections.MutableMapping):
                 for diff_msg in cls_diff:
                     print("  %s"%diff_msg)
 
-    def diff_db(self, otherfilename):
-        ''' Print a difference between two sqlite database files
-                For each table in each db:
-                    Report differences in schema
-                    Report row differences
-        '''
-        def diff_table(table_name, cur1, cur2):
-            ''' Print a difference between two tables
-                First list schema differences
-                Then data differences
-
-                Assumes cursors have been created using sql.Row row_factory
-            '''
-            cur1.execute("SELECT * FROM '%s' ORDER BY 1,2"%(table_name))
-            schema1 = [k[0] for k in cur1.description]
-            data1 = cur1.fetchall()
-            # Test the table on two - make sure all cols in one are still available
-            cur2.execute("SELECT * FROM '%s' LIMIT 1"%(table_name))
-            schema2 = [k[0] for k in cur2.description]
-            if len(set(schema1) - set(schema2)) > 0:
-                print("Table %s has different schemas"%table_name)
-                return
-            sel = "SELECT %s FROM '%s' ORDER BY 1,2"
-            cur2.execute(sel%(','.join(["["+k+"]" for k in schema1]), table_name))
-            data2 = cur2.fetchall()
-            # At this point both data sets should be in the same order
-            # For now use set functions to display differences
-            in1 = set(data1) - set(data2)
-            in2 = set(data2) - set(data1)
-            if len(in1) > 0 or len(in2) > 0:
-                print("Differences in table %s"%table_name)
-                row_format = "{:>15}"*(len(schema1))
-                if len(in1) > 0:
-                    print("Only in original file:")
-                    print(row_format.format(*schema1))
-                    print('-'*15*len(schema1))
-                    for i in in1:
-                        print(row_format.format(*i))
-                if len(in2) > 0:
-                    print("Only in new file:")
-                    print(row_format.format(*schema1))
-                    print('-' * 15 * len(schema1))
-                    for i in in2:
-                        print(row_format.format(*i))
-        if not otherfilename.endswith('.db'):
-            raise Exception('Invalid filename extention for ' + otherfilename)
-        self.dbcon.row_factory = sql.Row
-        cur = self.dbcon.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        tables = [s[0] for s in cur.fetchall()]
-        with sql.connect(otherfilename) as other_con:
-            other_con.row_factory = sql.Row
-            other_cur = other_con.cursor()
-            other_cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-            other_tables = [s[0] for s in other_cur.fetchall()]
-            # Tables in both dbs
-            for tbl in set(tables) | set(other_tables):
-                diff_table(tbl, cur, other_cur)
-            # Tables only in first db
-            for tbl in set(tables) - set(other_tables):
-                print('Tables removed from first file')
-            # Tables only in second db
-            for tbl in set(other_tables) - set(tables):
-                print('Tables added to first file')
-
     def __setitem__(self, key, value):
         raise Exception('Operation not supported yet')
 
     def __getitem__(self, key):
         meta = self.db['class'].find_one({'name':key})
         return ClassDict(self, meta)
-        #return self.store[key]
 
     def __delitem__(self, key):
         raise Exception('Operation not supported yet')
-        #del self.store[key]
 
     def __iter__(self):
         cls_dicts = self.db['class'].find({},{'name':1, '_id':0})
         return iter([c['name'] for c in cls_dicts])
-        #return iter(self.store)
 
     def __len__(self):
         return self.coad.db['class'].count()
-        #return len(self.store)
 
 class ClassDict(collections.MutableMapping):
     '''
