@@ -36,21 +36,21 @@ class TestDB(unittest.TestCase):
         self.assertEqual(['MOSEK', 'CPLEX', 'Xpress-MP', 'Gurobi'], master_coad.list('Performance'))
 
     def test_classes(self):
-        expected = [u'Transformer', u'Financial Contract', u'Escalator', u'Zone',
-                    u'Cournot', u'Storage', u'System', u'Production', u'Performance',
-                    u'Fuel', u'Stochastic', u'Model', u'PASA', u'Node', u'Generator',
-                    u'Transmission Right', u'Phase Shifter', u'Company', u'Report',
-                    u'Emission', u'Diagnostic', u'Interface', u'Line', u'ST Schedule',
-                    u'Condition', u'MLF', u'Timeslice', u'Scenario', u'Constraint',
-                    u'Transmission', u'Region', u'MT Schedule', u'Project', u'Variable',
-                    u'Physical Contract', u'Horizon', u'Contingency', u'Reserve',
-                    u'Purchaser', u'RSI', u'LT Plan', u'Competition', u'Abatement',
-                    u'Data File', u'Power Station', u'Fuel Contract', u'Waterway',
-                    u'Market']
+        expected = [ "System", "Generator", "Fuel", "Fuel Contract", "Emission",
+                     "Abatement", "Storage", "Waterway", "Power Station",
+                     "Physical Contract", "Purchaser", "Reserve", "Market",
+                     "Region", "Zone", "Node", "Line", "MLF", "Transformer",
+                     "Phase Shifter", "Interface", "Contingency", "Company",
+                     "Financial Contract", "Transmission Right", "Cournot",
+                     "RSI", "Constraint", "Condition", "Data File", "Escalator",
+                     "Variable", "Timeslice", "Scenario", "Model", "Project",
+                     "Horizon", "Report", "LT Plan", "PASA", "MT Schedule",
+                     "ST Schedule", "Transmission", "Production", "Competition",
+                     "Stochastic", "Performance", "Diagnostic"]
         self.assertEqual(expected, master_coad.keys())
 
     def test_objects(self):
-        expected = [u'Xpress-MP', u'MOSEK', u'Gurobi', u'CPLEX']
+        expected = [u'MOSEK', u'CPLEX', u'Xpress-MP', u'Gurobi']
         self.assertEqual(expected, master_coad['Performance'].keys())
 
     def test_valid_attributes(self):
@@ -96,22 +96,29 @@ class TestDB(unittest.TestCase):
         filename='coad/test/RTS-96.xml'
         coad=COAD(filename)
         g = coad['Generator']['101-1']
-        props = {'Mean Time to Repair': '50', 'Load Point': ['15.8', '16', '19.8', '20'], 'Heat Rate': ['14499', '14500', '15000', '15063'], 'Min Up Time': '1', 'Max Ramp Up': '3', 'Min Down Time': '1', 'Min Stable Level': '15.8', 'Units': '1', 'Start Cost Time': ['0', '1'], 'Maintenance Frequency': '2', 'Maintenance Rate': '3.84', 'Max Capacity': '20', 'Forced Outage Rate': '10'}
+        props = {'Mean Time to Repair': '50',
+                 'Load Point': ['20', '19.8', '16', '15.8'],
+                 'Heat Rate': ['15063', '14499', '14500', '15000'],
+                 'Min Up Time': '1',
+                 'Max Ramp Up': '3',
+                 'Min Down Time': '1',
+                 'Min Stable Level': '15.8',
+                 'Units': '1',
+                 'Start Cost Time': ['0', '1'],
+                 'Maintenance Frequency': '2',
+                 'Maintenance Rate': '3.84',
+                 'Max Capacity': '20',
+                 'Forced Outage Rate': '10'}
         self.assertEqual(g.get_properties(), props)
         # Get property
-        self.assertEqual(g.get_property('Load Point'), ['15.8', '16', '19.8', '20'])
-
-    '''
-
-
-    def test_show(self):
-        master_coad.show('CPLEX')
-        # TODO: Assert
+        self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
 
     def test_get(self):
         identifier='Performance.Gurobi.SOLVER'
         self.assertEqual(master_coad.get(identifier),'4')
         self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
+
+    '''
 
     def test_set(self):
         # Existing attribute
