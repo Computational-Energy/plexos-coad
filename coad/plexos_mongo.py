@@ -54,7 +54,7 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
     except TypeError:
         xml_file = source
         filename = xml_file.name
-    dbname = os.path.basename(filename).translate(None, '.$')
+    dbname = os.path.basename(filename)[:-4].translate(None, '.$')
     client = pymongo.MongoClient(host, port)
     db = client[dbname]
     if reset_db:

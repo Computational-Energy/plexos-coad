@@ -93,22 +93,6 @@ class COAD(collections.MutableMapping):
                 if att_data is not None:
                     print('%s.%s.%s=%s'%(clsdict['name'], objname, att['name'], att_data['value']))
 
-        return
-        #with sql.connect(self.dbfilename) as con:
-        cur = self.dbcon.cursor()
-        sel = '''SELECT c.name as class_name, o.name as objname,
-                 a.name as attribute_name, ad.value as attribute_value
-                 FROM object o
-                 INNER JOIN class c ON c.class_id=o.class_id
-                 INNER JOIN attribute_data ad ON ad.object_id = o.object_id
-                 INNER JOIN attribute a ON a.attribute_id=ad.attribute_id
-                 WHERE o.name=?'''
-        cur.execute(sel, [objname])
-
-        attributes = cur.fetchall()
-        for att in attributes:
-            print('%s.%s.%s=%s'%tuple(att))
-
     def get(self, identifier, default=None):
         ''' Return the attribute value for an object
             class_name.object_name.attribute_name=attribute value
@@ -193,6 +177,7 @@ class ClassDict(collections.MutableMapping):
         self.valid_attributes = dict()
         for att in attributes:
             self.valid_attributes[att['attribute_id']] = att['name']
+        # TODO: Duplicate names ever happen?
         self.named_valid_attributes = {v: k for k, v in self.valid_attributes.items()}
         objects = self.coad.db['object'].find({'class_id':self.meta['class_id']})
         for objdoc in objects:
@@ -212,7 +197,6 @@ class ClassDict(collections.MutableMapping):
     def __getitem__(self, key):
         meta = self.coad.db['object'].find_one({'name':key, 'class_id':self.meta['class_id']})
         return ObjectDict(self, meta)
-        #eturn self.store[key]
 
     def __delitem__(self, key):
         # To remove this object:
@@ -237,11 +221,9 @@ class ClassDict(collections.MutableMapping):
             def next(self):
                 return ObjectDict(self.cls, self.all_objects.next())
         return ObjIterable(self)
-        #return iter(self.store)
 
     def __len__(self):
         return self.coad.db['object'].find({'class_id':self.cls.meta['class_id']}).count()
-        #return len(self.store)
 
     def diff(self, other_class):
         ''' Return a list of difference between two ClassDict objects
@@ -294,43 +276,27 @@ class ObjectDict(collections.MutableMapping):
         self.store = dict()
         self.clsdict = clsdict
         self.meta = meta
-        #attdata = self.clsdict.coad.db['attribute_data'].find({'object_id':self.meta['object_id']})
-        #for att in attdata:
-        #    att_name = self.clsdict.valid_attributes[att['attribute_id']]
-        #    self.store[att_name] = att['value']
-        self._no_update = False
 
     def __setitem__(self, key, value):
-        if self._no_update:
-            self.store[key] = value
-            return
-        # TODO: Allow for mongo
-        return
-        # TODO: Make sure value is valid
-        # Make sure this attribute is allowed in this class
-        if key not in self.valid_attributes:
+        if key not in self.clsdict.named_valid_attributes:
             msg = '%s is not a valid attribute of object %s, valid attributes:%s'
-            raise Exception(msg%(key, self.meta['name'], self.valid_attributes.keys()))
-        cur = self.coad.dbcon.cursor()
-        cmd = "UPDATE attribute_data SET value=? WHERE object_id=? and attribute_id=?"
-        vls = [value, self.meta['object_id'], self.valid_attributes[key]['attribute_id']]
-        cur.execute(cmd, vls)
-        if cur.rowcount == 0:
-            # Did not work, add a new row
-            cmd = "INSERT INTO attribute_data (object_id,attribute_id,value) VALUES (?,?,?)"
-            vls = [self.meta['object_id'], self.valid_attributes[key]['attribute_id'], value]
-            cur.execute(cmd, vls)
-        self.coad.dbcon.commit()
-        self.store[key] = value
+            raise Exception(msg%(key, self.meta['name'], self.clsdict.named_valid_attributes.keys()))
+        att_id = self.clsdict.named_valid_attributes[key]
+        self.clsdict.coad.db['attribute_data'].update({'object_id':self.meta['object_id'], 'attribute_id':att_id},
+                                                      {'$set': {'value': value}}, upsert=True)
 
     def __getitem__(self, key):
         att_id = self.clsdict.named_valid_attributes[key]
         attdata = self.clsdict.coad.db['attribute_data'].find_one({'object_id':self.meta['object_id'], 'attribute_id':att_id})
         return attdata['value']
-        #return self.store[key]
 
     def __delitem__(self, key):
         # TODO: Code for mongo
+        if key not in self.clsdict.named_valid_attributes:
+            msg = '%s is not a valid attribute of object %s, valid attributes:%s'
+            raise Exception(msg%(key, self.meta['name'], self.clsdict.named_valid_attributes.keys()))
+        att_id = self.clsdict.named_valid_attributes[key]
+        self.clsdict.coad.db['attribute_data'].remove({'object_id':self.meta['object_id'], 'attribute_id':att_id}, True)
         return
         cur = self.coad.dbcon.cursor()
         cmd = "DELETE FROM attribute_data WHERE object_id=? AND attribute_id=?"
@@ -458,7 +424,7 @@ class ObjectDict(collections.MutableMapping):
         return self.clsdict
 
     def get_properties(self):
-        '''Return a dict of all properties set for this object.  Done with mongo queries
+        '''Return a dict of all properties set for this object with respect to the System parent.
         '''
         props = {}
         memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
@@ -487,6 +453,32 @@ class ObjectDict(collections.MutableMapping):
     def set_property(self, name, value):
         '''Set the value of a property by name
         '''
+        raise Exception('Opertation not supported yet')
+
+        # If list do something else
+        if isinstance(value, list):
+            raise Exception('Opertation not supported yet')
+        # Find data id(s), has to be done by membership + child_object_id
+        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
+        for member in memberships:
+            data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
+            for d in data:
+                if name == self.clsdict.coad.valid_properties[d['property_id']]:
+                    # Update here
+                    # TODO: Multiple values
+                    pass
+        prop_id = None
+        for (pi, pn) in self.clsdict.coad.valid_properties.iteritems():
+            if pn == name:
+                prop_id = pi
+                break
+        if prop_id is None:
+            raise Exception('Object has no valid property "%s"'%name)
+        # If list do something else
+        if isinstance(value, list):
+            raise Exception('Opertation not supported yet')
+        # Update value
+        self.clsdict.coad.db['data'].update()
         #TODO: Handle arrays of values
         cur = self.coad.dbcon.cursor()
         cur.execute("""SELECT d.data_id FROM data d
@@ -524,10 +516,10 @@ class ObjectDict(collections.MutableMapping):
         ''' Print to stdout as much information as possible about object to facilitate debugging
         '''
         spacing = '        '*recursion_level
-        msg = 'Object:    {:<30}            ID: {:d}'.format(self.meta['name'],
+        msg = 'Object:    {:<30}            ID: {}'.format(self.meta['name'],
                                                              self.meta['object_id'])
         print(spacing + msg)
-        msg = '    Class: {:<30}            ID: {:d}'.format(self.get_class().meta['name'],
+        msg = '    Class: {:<30}            ID: {}'.format(self.get_class().meta['name'],
                                                              self.meta['class_id'])
         print(spacing + msg)
         if self.keys():

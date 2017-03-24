@@ -118,8 +118,6 @@ class TestDB(unittest.TestCase):
         self.assertEqual(master_coad.get(identifier),'4')
         self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
 
-    '''
-
     def test_set(self):
         # Existing attribute
         identifier='Performance.Gurobi.SOLVER'
@@ -132,7 +130,9 @@ class TestDB(unittest.TestCase):
         self.assertEqual('.002',master_coad.get(identifier))
         master_coad.set(identifier,'.001')
         self.assertEqual('.001',master_coad.get(identifier))
-        master_coad.save('coad/test/master_save_sqlite_mod.xml')
+        master_coad.save('coad/test/master_save_mongo_mod.xml')
+
+    '''
 
 
 
