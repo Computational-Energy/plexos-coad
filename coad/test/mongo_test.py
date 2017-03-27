@@ -118,20 +118,52 @@ class TestDB(unittest.TestCase):
         self.assertEqual(master_coad.get(identifier),'4')
         self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
 
+class TestModifications(unittest.TestCase):
+
     def test_set(self):
+        copy_coad = COAD('coad/master.xml')
         # Existing attribute
         identifier='Performance.Gurobi.SOLVER'
-        self.assertEqual(master_coad.get(identifier),'4')
-        master_coad.set(identifier,'3')
-        self.assertEqual(master_coad.get(identifier),'3')
+        self.assertEqual(copy_coad.get(identifier),'4')
+        copy_coad.set(identifier,'3')
+        self.assertEqual(copy_coad.get(identifier),'3')
         # New attribute
         identifier='Performance.CPLEX.MIP Relative Gap'
-        master_coad.set(identifier,'.002')
-        self.assertEqual('.002',master_coad.get(identifier))
-        master_coad.set(identifier,'.001')
-        self.assertEqual('.001',master_coad.get(identifier))
-        master_coad.save('coad/test/master_save_mongo_mod.xml')
+        copy_coad.set(identifier,'.002')
+        self.assertEqual('.002',copy_coad.get(identifier))
+        copy_coad.set(identifier,'.001')
+        self.assertEqual('.001',copy_coad.get(identifier))
+        copy_coad.save('coad/test/master_save_mongo_mod.xml')
 
+    def test_copy(self):
+        copy_coad = COAD('coad/master.xml')
+        oldobj = copy_coad['Performance']['Gurobi']
+        newobj = oldobj.copy()
+        self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
+        for (k,v) in oldobj.items():
+            self.assertEqual(v,newobj[k])
+        copy_coad.list('Performance')
+        newobj = oldobj.copy()
+        self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
+        oldobj = copy_coad['Model']['Base']
+        newobj = oldobj.copy('Test Base Model')
+        self.assertIn('Test Base Model',copy_coad['Model'])
+        should_contain = [copy_coad['Horizon']['Base'],copy_coad['Report']['Base'],copy_coad['ST Schedule']['Base']]
+        self.assertItemsEqual(should_contain,copy_coad['Model']['Test Base Model'].get_children())
+
+    def test_set_children(self):
+        # Single new child
+        copy_coad = COAD('coad/master.xml')
+        copy_coad['Model']['Base'].set_children(copy_coad['Performance']['Gurobi'])
+        should_contain = [copy_coad['Horizon']['Base'],copy_coad['Report']['Base'],copy_coad['ST Schedule']['Base'],copy_coad['Performance']['Gurobi']]
+        self.assertEqual(should_contain, copy_coad['Model']['Base'].get_children())
+        # Replace added model
+        copy_coad['Model']['Base'].set_children(copy_coad['Performance']['CPLEX'])
+        should_contain = [copy_coad['Horizon']['Base'],copy_coad['Report']['Base'],copy_coad['ST Schedule']['Base'],copy_coad['Performance']['CPLEX']]
+        self.assertEqual(should_contain, copy_coad['Model']['Base'].get_children())
+        # TODO: Test multiple new children of different classes that overwrites existing
+        # TODO: Test adding new child once collection functionality is understood
+        # TODO: Add mix of new child classes once collection functionality is understood
     '''
 
 
@@ -150,20 +182,6 @@ class TestObjectDict(unittest.TestCase):
         if not hasattr(self,'assertItemsEqual'):
             self.assertItemsEqual=self.assertCountEqual
 
-    def test_copy(self):
-        oldobj = master_coad['Performance']['Gurobi']
-        newobj = oldobj.copy()
-        self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
-        for (k,v) in oldobj.items():
-            self.assertEqual(v,newobj[k])
-        master_coad.list('Performance')
-        newobj = oldobj.copy()
-        self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
-        oldobj = master_coad['Model']['Base']
-        newobj = oldobj.copy('Test Base Model')
-        self.assertIn('Test Base Model',master_coad['Model'])
-        should_contain = [master_coad['Horizon']['Base'],master_coad['Report']['Base'],master_coad['ST Schedule']['Base']]
-        self.assertItemsEqual(should_contain,master_coad['Model']['Test Base Model'].get_children())
 
 
     def test_set_children(self):

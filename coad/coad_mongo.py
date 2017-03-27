@@ -183,7 +183,7 @@ class ClassDict(collections.MutableMapping):
         for objdoc in objects:
             if objdoc['name'] in self.store:
                 msg = 'Duplicate name of object %s in class %s'
-                raise Exception(msg%(obj['name'], self.meta['name']))
+                raise Exception(msg%(objdoc['name'], self.meta['name']))
             self.store[objdoc['name']] = ObjectDict(self, objdoc)
 
     def __setitem__(self, key, value):
@@ -328,44 +328,44 @@ class ObjectDict(collections.MutableMapping):
             # TODO: Enforce unique naming
         '''
         # TODO: update for mongo
-        return
-        cols = []
-        vals = []
-        for (k, val) in self.meta.items():
-            if k != 'object_id':
-                cols.append(k)
-                if k == 'name':
-                    if newname is None:
-                        val = self.meta['name'] + '-' + str(uuid.uuid4())
-                    else:
-                        val = newname
-                vals.append(val)
-        cur = self.coad.dbcon.cursor()
-        fill = ','.join('?'*len(cols))
-        cmd = "INSERT INTO object (%s) VALUES (%s)"%(','.join(["'%s'"%c for c in cols]), fill)
-        cur.execute(cmd, vals)
-        self.coad.dbcon.commit()
-        new_obj_meta = dict(zip(cols, vals))
-        new_obj_meta['object_id'] = cur.lastrowid
-        new_obj_dict = ObjectDict(self.coad, new_obj_meta)
-        for (k, val) in self.store.items():
-            new_obj_dict[k] = val
-        # Add this objectdict to classdict
-        new_obj_dict.get_class()[new_obj_meta['name']] = new_obj_dict
-        # Create new the membership information
-        # TODO: Is it possible to have orphans by not checking child_object_id?
-        cur.execute("SELECT * FROM membership WHERE parent_object_id=?",
-                    [self.meta['object_id']])
-        cols = [d[0] for d in cur.description]
-        parent_object_id_idx = cols.index('parent_object_id')
-        for row in cur.fetchall():
-            newrow = list(row)
-            newrow[parent_object_id_idx] = new_obj_meta['object_id']
-            cmd = "INSERT INTO membership (%s) VALUES (%s)"
-            vls = (','.join(["'"+c+"'" for c in cols[1:]]), ','.join(['?' for d in newrow[1:]]))
-            cur.execute(cmd%vls, newrow[1:])
-        self.coad.dbcon.commit()
-        return new_obj_dict
+        obj_id_list = self.clsdict.coad.db['object'].find( {}, { '_id': 0, 'object_id':1 } )
+        last_obj_id = max(map(int, [x['object_id'] for x in obj_id_list]))
+        new_object_id = last_obj_id + 1;
+        new_obj = self.clsdict.coad.db['object'].find({'object_id':self.meta['object_id']}, {'_id':0})[0]
+        new_obj['object_id'] = str(new_object_id)
+        if newname is None:
+            new_obj['name'] = new_obj['name'] + '-' + str(uuid.uuid4())
+        else:
+            new_obj['name'] = newname
+        self.clsdict.coad.db['object'].insert_one(new_obj)
+        # Add obj to class list
+        self.clsdict.store[new_obj['name']] = ObjectDict(self.clsdict, new_obj)
+        # Copy attributes
+        new_atts = []
+        att_list = self.clsdict.coad.db['attribute_data'].find( {'object_id':self.meta['object_id']}, { '_id': 0 } )
+        for att in att_list:
+            att['object_id'] = str(new_object_id)
+            new_atts.append(att)
+        self.clsdict.coad.db['attribute_data'].insert_many(new_atts)
+        # Get highest membership_id
+        # TODO: Something bad may happen if object has no memberships
+        mship_id_list = self.clsdict.coad.db['membership'].find( {}, { '_id': 0, 'membership_id':1 } )
+        last_mship_id = max(map(int, [x['membership_id'] for x in mship_id_list]))
+        new_mship_id = last_mship_id + 1;
+        # Copy memberships where this is the parent
+        new_mships = []
+        mships = self.clsdict.coad.db['membership'].find({'parent_object_id': self.meta['object_id']}, { '_id': 0 })
+        for mship in mships:
+            mship['parent_object_id'] = str(new_object_id)
+            mship['membership_id'] = str(new_mship_id)
+            new_mship_id += 1
+            new_mships.append(mship)
+        # Copy data from parent memberships
+        # Copy memberships where this is the child
+        # Copy data from child memberships
+        if len(new_mships) > 0:
+            self.clsdict.coad.db['membership'].insert_many(new_mships)
+        return self.clsdict.store[new_obj['name']]
 
     def set_children(self, children, replace=True):
         ''' Set the children of this object.    If replace is true, it will
@@ -375,6 +375,31 @@ class ObjectDict(collections.MutableMapping):
         TODO: Validate that object is allowed to have the children passed in
         '''
         # TODO: update for mongo
+        # Convert objdict to list of objdict
+        if isinstance(children, ObjectDict):
+            children = [children]
+        # Get last membership id
+        mship_id_list = self.clsdict.coad.db['membership'].find( {}, { '_id': 0, 'membership_id':1 } )
+        last_mship_id = max(map(int, [x['membership_id'] for x in mship_id_list]))
+        new_mship_id = last_mship_id + 1;
+        # Add all memberships
+        new_mships = []
+        for child in children:
+            # Remove all memberships that match child_class_id and parent_object_id
+            child_class_id = child.clsdict.meta['class_id']
+            if replace:
+                self.clsdict.coad.db['membership'].remove({'child_class_id':child_class_id,
+                                                           'parent_object_id':self.meta['object_id']})
+            new_mship = {'membership_id':str(new_mship_id),
+                         'child_class_id':child_class_id,
+                         'child_object_id':child.meta['object_id'],
+                         'parent_class_id':self.clsdict.meta['class_id'],
+                         'parent_object_id':self.meta['object_id'],
+                         'collection_id':self.clsdict.get_collection_id(child_class_id)}
+            new_mships.append(new_mship)
+            new_mship_id += 1
+        if len(new_mships) > 0:
+            self.clsdict.coad.db['membership'].insert_many(new_mships)
         return
         children_by_class = {}
         if isinstance(children, ObjectDict):
