@@ -52,6 +52,15 @@ class COAD(collections.MutableMapping):
             self.dbcon = plexos_database.load(filename, create_db_file=create_db_file)
         self.store = dict()
         self.populate_store()
+        # Test for uid in data table, important for ordering of properties.
+        # Occasionally missing from input files
+        self.has_data_uid = False
+        cur = self.dbcon.cursor()
+        cur.execute('PRAGMA table_info(data)')
+        for row in cur.fetchall():
+            if 'uid' == row[1]:
+                self.has_data_uid = True
+                break
 
     def populate_store(self):
         ''' Populate this map with class names and pointers to their classDict
@@ -515,11 +524,13 @@ class ObjectDict(collections.MutableMapping):
         # Check for table "data"
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data'")
         if len(cur.fetchall()) == 1:
-            cur.execute("""SELECT p.name, d.value FROM data d
+            cmd = """SELECT p.name, d.value FROM data d
                 INNER JOIN property p ON p.property_id = d.property_id
                 WHERE membership_id IN
-                (SELECT membership_id FROM membership WHERE child_object_id=?)
-                ORDER BY d.data_id""", [self.meta['object_id']])
+                (SELECT membership_id FROM membership WHERE child_object_id=?)"""
+            if self.coad.has_data_uid:
+                cmd += " ORDER BY d.uid"
+            cur.execute(cmd, [self.meta['object_id']])
             for (name, value) in cur.fetchall():
                 if name not in props:
                     props[name] = value
@@ -543,12 +554,14 @@ class ObjectDict(collections.MutableMapping):
         '''
         #TODO: Handle arrays of values
         cur = self.coad.dbcon.cursor()
-        cur.execute("""SELECT d.data_id FROM data d
+        cmd = """SELECT d.data_id FROM data d
             INNER JOIN property p ON p.property_id = d.property_id
             WHERE p.name=?
             AND membership_id IN
-            (SELECT membership_id FROM membership WHERE child_object_id=?)""",
-                    [name, self.meta['object_id']])
+            (SELECT membership_id FROM membership WHERE child_object_id=?)"""
+        if self.coad.has_data_uid:
+            cmd += " ORDER BY d.uid"
+        cur.execute(cmd, [name, self.meta['object_id']])
         match_data = cur.fetchall()
         if isinstance(value, list):
             if len(value) != len(match_data):
