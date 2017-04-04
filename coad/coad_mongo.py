@@ -401,34 +401,6 @@ class ObjectDict(collections.MutableMapping):
         if len(new_mships) > 0:
             self.clsdict.coad.db['membership'].insert_many(new_mships)
         return
-        children_by_class = {}
-        if isinstance(children, ObjectDict):
-            class_id = children.get_class().meta['class_id']
-            children_by_class[class_id] = [children]
-        else:
-            for obj in children:
-                if not isinstance(obj, ObjectDict):
-                    msg = "Children must be of type ObjectDict, passed item was %s"
-                    raise Exception(msg%(type(obj)))
-                class_id = obj.get_class().meta['class_id']
-                if class_id not in children_by_class.keys():
-                    children_by_class[class_id] = [obj]
-                else:
-                    children_by_class[class_id].append(obj)
-        cur = self.coad.dbcon.cursor()
-        for (class_id, objectdicts) in children_by_class.items():
-            if replace:
-                cmd = "DELETE FROM membership WHERE parent_object_id=? AND child_class_id=?"
-                cur.execute(cmd, [self.meta['object_id'], class_id])
-            collection_id = self.clsdict.get_collection_id(class_id)
-            for obj in objectdicts:
-                cmd = '''INSERT INTO membership (parent_class_id, parent_object_id,
-                         collection_id, child_class_id, child_object_id)
-                         VALUES (?,?,?,?,?)'''
-                vls = [self.meta['class_id'], self.meta['object_id'], collection_id,
-                       class_id, obj.meta['object_id']]
-                cur.execute(cmd, vls)
-        self.coad.dbcon.commit()
 
     def get_children(self, class_name=None):
         ''' Return a list of all children that match the class name.  If class
@@ -553,7 +525,28 @@ class ObjectDict(collections.MutableMapping):
                 print(spacing+'        %s = %s'%atr)
         else:
             print(spacing+'    No attributes set')
-        kids = self.get_children()
+        children = self.get_children()
+        # TODO: Check for peers where one is a child of the other
+        kids = []
+        peers = []
+        if len(children):
+            for c in children:
+                has_peer = False
+                for cc in c.get_children(self.clsdict.meta['name']):
+                    if cc.meta['object_id'] == self.meta['object_id']:
+                        peers.append(c)
+                        has_peer = True
+                        break
+                if not has_peer:
+                    kids.append(c)
+        if len(peers):
+            print(spacing+'    Peers (%s):'%len(peers))
+            for p in peers:
+                msg = '        {:<30}        Class: {}'.format(p.meta['name'],
+                                                           p.clsdict.meta['name'])
+                print(spacing + msg)
+        else:
+            print(spacing+'    No peers')
         if len(kids):
             print(spacing+'    Children (%s):'%len(kids))
             for k in kids:

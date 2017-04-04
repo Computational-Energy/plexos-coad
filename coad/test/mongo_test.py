@@ -182,18 +182,6 @@ class TestObjectDict(unittest.TestCase):
         if not hasattr(self,'assertItemsEqual'):
             self.assertItemsEqual=self.assertCountEqual
 
-
-
-    def test_set_children(self):
-        # Single new child
-        master_coad['Model']['Base'].set_children(master_coad['Performance']['Gurobi'])
-        should_contain = [master_coad['Horizon']['Base'],master_coad['Report']['Base'],master_coad['ST Schedule']['Base'],master_coad['Performance']['Gurobi']]
-        self.assertEqual(should_contain,master_coad['Model']['Base'].get_children())
-        # TODO: Test multiple new children of different classes that overwrites existing
-        # TODO: Test adding new child once collection functionality is understood
-        # TODO: Add mix of new child classes once collection functionality is understood
-
-
     def test_del(self):
         # Existing attribute
         del(master_coad['Model']['Base']['Enabled'])
