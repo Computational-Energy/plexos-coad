@@ -181,6 +181,18 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     meta_ins = "INSERT INTO '%s' ('name', 'value') VALUES (?, ?)"%META_TABLE
     dbcon.execute(meta_ins, ('namespace', namespace))
     dbcon.execute(meta_ins, ('root_element', root_element))
+    # Indexes needed to speed up certain operations
+    index_list = [('attribute', 'object_id'),
+                  ('attribute_data', 'object_id'),
+                  ('attribute_data', 'attribute_id'),
+                  ('data', 'membership_id'),
+                  ('data', 'uid'),
+                  ('membership', 'parent_object_id'),
+                  ('membership', 'child_object_id'),
+                  ('object', 'object_id')]
+    for (tablename, colname) in index_list:
+        if tablename in tables and colname in tables[tablename]:
+            dbcon.execute("CREATE INDEX %s_%s_idx ON %s (%s) "%(tablename, colname, tablename, colname))
 
     LOGGER.info('Loaded %s rows in %d seconds',row_count,(time.time()-start_time))
     if has_resource:
