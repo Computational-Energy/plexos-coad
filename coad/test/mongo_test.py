@@ -88,35 +88,59 @@ class TestDB(unittest.TestCase):
         coad = COAD(filename)
         # Get properties
         line = coad['Line']['126']
-        props = {'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}
+        props = {'System':{'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}}
         self.assertEqual(line.get_properties(), props)
         # Get property
-        self.assertEqual(line.get_property('Max Flow'), '9900')
+        self.assertEqual(line.get_property('Max Flow', 'System'), '9900')
         # Get properties
         filename='coad/test/RTS-96.xml'
         coad=COAD(filename)
         g = coad['Generator']['101-1']
-        props = {'Mean Time to Repair': '50',
-                 'Load Point': ['20', '19.8', '16', '15.8'],
-                 'Heat Rate': ['15063', '14499', '14500', '15000'],
-                 'Min Up Time': '1',
-                 'Max Ramp Up': '3',
-                 'Min Down Time': '1',
-                 'Min Stable Level': '15.8',
-                 'Units': '1',
-                 'Start Cost Time': ['0', '1'],
-                 'Maintenance Frequency': '2',
-                 'Maintenance Rate': '3.84',
-                 'Max Capacity': '20',
-                 'Forced Outage Rate': '10'}
+        props = {'System':{'Mean Time to Repair': '50',
+                     'Load Point': ['20', '19.8', '16', '15.8'],
+                     'Heat Rate': ['15063', '14499', '14500', '15000'],
+                     'Min Up Time': '1',
+                     'Max Ramp Up': '3',
+                     'Min Down Time': '1',
+                     'Min Stable Level': '15.8',
+                     'Units': '1',
+                     'Start Cost Time': ['0', '1'],
+                     'Maintenance Frequency': '2',
+                     'Maintenance Rate': '3.84',
+                     'Max Capacity': '20',
+                     'Forced Outage Rate': '10'}}
         self.assertEqual(g.get_properties(), props)
         # Get property
         self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
+        # Tagged properties
+        self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
 
     def test_get(self):
         identifier='Performance.Gurobi.SOLVER'
-        self.assertEqual(master_coad.get(identifier),'4')
+        self.assertEqual(master_coad.get_by_hierarchy(identifier),'4')
         self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
+
+    def test_get_by_object_id(self):
+        o = master_coad.get_by_object_id('9')
+        self.assertEqual('Performance', o.clsdict.meta['name'])
+        self.assertEqual('Gurobi', o.meta['name'])
+
+    def test_class_valid_properties(self):
+        '''Test valid properties for a class
+        '''
+        expected = {"Production Rate":"816",
+            "Removal Rate":"817",
+            "Removal Cost":"818",
+            "Production at Start":"819",
+            "Shadow Price Scalar":"820",
+            "Price Scalar":"821",
+            "Allocation":"822",
+            "Allocation Day":"823",
+            "Allocation Week":"824",
+            "Allocation Month":"825",
+            "Allocation Year":"826"
+            }
+        self.assertEqual(expected, master_coad['Generator'].valid_properties_by_name['Emission'])
 
 class TestModifications(unittest.TestCase):
 
@@ -124,15 +148,15 @@ class TestModifications(unittest.TestCase):
         copy_coad = COAD('coad/master.xml')
         # Existing attribute
         identifier='Performance.Gurobi.SOLVER'
-        self.assertEqual(copy_coad.get(identifier),'4')
+        self.assertEqual(copy_coad.get_by_hierarchy(identifier),'4')
         copy_coad.set(identifier,'3')
-        self.assertEqual(copy_coad.get(identifier),'3')
+        self.assertEqual(copy_coad.get_by_hierarchy(identifier),'3')
         # New attribute
         identifier='Performance.CPLEX.MIP Relative Gap'
         copy_coad.set(identifier,'.002')
-        self.assertEqual('.002',copy_coad.get(identifier))
+        self.assertEqual('.002',copy_coad.get_by_hierarchy(identifier))
         copy_coad.set(identifier,'.001')
-        self.assertEqual('.001',copy_coad.get(identifier))
+        self.assertEqual('.001',copy_coad.get_by_hierarchy(identifier))
         copy_coad.save('coad/test/master_save_mongo_mod.xml')
 
     def test_copy(self):

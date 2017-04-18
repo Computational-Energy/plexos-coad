@@ -57,6 +57,7 @@ class COAD(collections.MutableMapping):
             if not filename.endswith('.xml'):
                 raise Exception('Invalid filename suffix')
             self.db = plexos_mongo.load(filename, host=host, port=port)
+        # TODO: This is incorrect for properties that have duplicate names, move into class/collection
         # Add map of property ids to property names
         all_properties = self.db['property'].find({}, {'name':1, 'property_id':1, '_id':0})
         self.valid_properties = dict()
@@ -93,28 +94,35 @@ class COAD(collections.MutableMapping):
                 if att_data is not None:
                     print('%s.%s.%s=%s'%(clsdict['name'], objname, att['name'], att_data['value']))
 
-    def get(self, identifier, default=None):
-        ''' Return the attribute value for an object
-            class_name.object_name.attribute_name=attribute value
-
-            attribute_data table has object_id, attribute_id, value
-            attribute has attribute_name,
-            object has object_id, class_id, object_name
-            class has class_id,class_name
-
-            TODO: Use default as inherited from MutableMapping
+    def get_by_hierarchy(self, identifier, default=None):
+        ''' Return the ClassDict, ObjectDict or attribute value for an object
+            class_name.object_name.attribute_name = attribute value
+            or
+            class_name|object_name|attribute_name = attribute value
+            if one of the names has a . in it
         '''
-        try:
-            (class_name, object_name, attribute_name) = identifier.split('.')
-        except:
-            raise Exception('''Invalid identifier, must take the form of:
-                class name.object name.attribute name''')
-        return self[class_name][object_name][attribute_name]
+        hier = identifier.split('.')
+        if hier[0] not in self:
+            hier = identifier.split('|')
+        if hier[0] not in self:
+            raise Exception("No such class '%s'"%hier[0])
+        retobj = self[hier[0]]
+        if len(hier) > 1:
+            if hier[1] not in retobj:
+                raise Exception("No such object '%s' in %s"%(hier[1], hier[0]))
+            retobj = retobj[hier[1]]
+            if len(hier) > 2:
+                if hier[2] not in retobj:
+                    raise Exception("No such attribute '%s' in %s"%(hier[2], hier[1]))
+                retobj = retobj[hier[2]]
+        return retobj
 
     def set(self, identifier, value):
         ''' Sets the attribute value for an object
             class_name.object_name.attribute_name=attribute value
             Will create a new row in attribute_data if no existing value is found
+
+            TODO: Don't overwrite the MutableMapping set
             '''
         try:
             (class_name, object_name, attribute_name) = identifier.split('.')
@@ -122,6 +130,14 @@ class COAD(collections.MutableMapping):
             raise Exception('''Invalid identifier, must take the form of:
                 class name.object name.attribute name''')
         self[class_name][object_name][attribute_name] = value
+
+    def get_by_object_id(self, object_id):
+        ''' Return an ObjectDict based on object_id
+        '''
+        objmeta = self.db['object'].find_one({'object_id':object_id})
+        clsmeta = self.db['class'].find_one({'class_id':objmeta['class_id']})
+        objcls = ClassDict(self, clsmeta)
+        return ObjectDict(objcls, objmeta)
 
     def diff(self, other_coad):
         ''' Print a difference between two coad objects
@@ -169,7 +185,7 @@ class ClassDict(collections.MutableMapping):
         Uses Abstract Base Classes to extend a dictionary
     '''
     def __init__(self, coad, meta):
-        self.store = dict()
+        #self.store = dict()
         self.coad = coad
         self.meta = meta
         # TODO: Add more info to valid attributes
@@ -179,12 +195,36 @@ class ClassDict(collections.MutableMapping):
             self.valid_attributes[att['attribute_id']] = att['name']
         # TODO: Duplicate names ever happen?
         self.named_valid_attributes = {v: k for k, v in self.valid_attributes.items()}
-        objects = self.coad.db['object'].find({'class_id':self.meta['class_id']})
-        for objdoc in objects:
-            if objdoc['name'] in self.store:
-                msg = 'Duplicate name of object %s in class %s'
-                raise Exception(msg%(objdoc['name'], self.meta['name']))
-            self.store[objdoc['name']] = ObjectDict(self, objdoc)
+        #objects = self.coad.db['object'].find({'class_id':self.meta['class_id']})
+        #for objdoc in objects:
+        #    if objdoc['name'] in self.store:
+        #        msg = 'Duplicate name of object %s in class %s'
+        #        raise Exception(msg%(objdoc['name'], self.meta['name']))
+        #    self.store[objdoc['name']] = ObjectDict(self, objdoc)
+        # Collections have the property id allowed for class
+        self.valid_properties = dict()
+        collections = self.coad.db['collection'].find({'child_class_id':self.meta['class_id']})
+        for coll in collections:
+            parent = coll['parent_class_id']
+            parent_meta = self.coad.db['class'].find_one({'class_id':parent})
+            props = self.coad.db['property'].find({'collection_id': coll['collection_id']})
+            for prop in props:
+                if parent_meta['name'] not in self.valid_properties:
+                    self.valid_properties[parent_meta['name']] = {}
+                if prop['property_id'] in self.valid_properties:
+                    raise Exception("Duplicate property %s in class %s"%(prop['name'], self.meta['name']))
+                self.valid_properties[parent_meta['name']][prop['property_id']] = prop
+        #all_properties = self.db['property'].find({}, {'name':1, 'property_id':1, '_id':0})
+        #self.valid_properties = dict()
+        #for p in all_properties:
+        #    self.valid_properties[p['property_id']] = p['name']
+        self.valid_properties_by_name = {}
+        for p, pv in self.valid_properties.iteritems():
+            self.valid_properties_by_name[p] = {}
+            for k, v in pv.iteritems():
+                if v['name'] in  self.valid_properties_by_name:
+                    raise Exception("Duplicate property %s in class %s"%(v['name'], self.meta['name']))
+                self.valid_properties_by_name[p][v['name']] = k
 
     def __setitem__(self, key, value):
         ''' Allow setting keys to an objectdict '''
@@ -273,7 +313,7 @@ class ObjectDict(collections.MutableMapping):
         Uses Abstract Base Classes to extend a dictionary
     '''
     def __init__(self, clsdict, meta):
-        self.store = dict()
+        #self.store = dict()
         self.clsdict = clsdict
         self.meta = meta
 
@@ -339,7 +379,7 @@ class ObjectDict(collections.MutableMapping):
             new_obj['name'] = newname
         self.clsdict.coad.db['object'].insert_one(new_obj)
         # Add obj to class list
-        self.clsdict.store[new_obj['name']] = ObjectDict(self.clsdict, new_obj)
+        #self.clsdict.store[new_obj['name']] = ObjectDict(self.clsdict, new_obj)
         # Copy attributes
         new_atts = []
         att_list = self.clsdict.coad.db['attribute_data'].find( {'object_id':self.meta['object_id']}, { '_id': 0 } )
@@ -365,7 +405,7 @@ class ObjectDict(collections.MutableMapping):
         # Copy data from child memberships
         if len(new_mships) > 0:
             self.clsdict.coad.db['membership'].insert_many(new_mships)
-        return self.clsdict.store[new_obj['name']]
+        return self.clsdict[new_obj['name']]
 
     def set_children(self, children, replace=True):
         ''' Set the children of this object.    If replace is true, it will
@@ -421,31 +461,91 @@ class ObjectDict(collections.MutableMapping):
         return self.clsdict
 
     def get_properties(self):
-        '''Return a dict of all properties set for this object with respect to the System parent.
+        '''Return a dict of all properties set for this object along with any
+        properties tagged to another object.
+
+        TODO: Tagged properties apply only to tag object
+
+        Returns:
+            dict of class/object_hierarchy=dict of property_name=value
         '''
         props = {}
-        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
+        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
         for member in memberships:
             data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
             for d in data:
-                name = self.clsdict.coad.valid_properties[d['property_id']]
-                value = d['value']
-                if name not in props:
-                    props[name] = value
+                # Check for tag
+                tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
+                parent = member['parent_class_id']
+                parent_meta = self.clsdict.coad.db['class'].find_one({'class_id':parent})
+                prop_class = parent_meta['name']
+                if tag is not None:
+                    # TODO: Ever multiple tags for the same data_id?
+                    tag_obj = self.clsdict.coad.get_by_object_id(tag['object_id'])
+                    tag_hier = "%s.%s"%(tag_obj.clsdict.meta['name'], tag_obj.meta['name'])
                 else:
-                    if not isinstance(props[name], list):
-                        props[name] = [props[name], value]
+                    tag_hier = prop_class
+                name = self.clsdict.valid_properties[prop_class][d['property_id']]['name']
+                value = d['value']
+                if tag_hier not in props:
+                    props[tag_hier] = {}
+                if name not in props[tag_hier]:
+                    props[tag_hier][name] = value
+                else:
+                    if not isinstance(props[tag_hier][name], list):
+                        props[tag_hier][name] = [props[tag_hier][name], value]
                     else:
-                        props[name].append(value)
+                        props[tag_hier][name].append(value)
         return props
 
-    def get_property(self, name):
+    def get_property(self, name, tag='System'):
         '''Return the value of a property by name
+
+        Args:
+            tag - ObjectDict or hierarchy string of data tag
         '''
-        props = self.get_properties()
-        if name not in props:
-            raise Exception('Object has no property "%s" set'%name)
-        return props[name]
+        # Reverse lookup of class.valid_properties to get property_id
+        if name not in self.clsdict.valid_properties_by_name[tag]:
+            raise Exception('"%s" is not a valid property for class %s'%(name, self.clsdict.meta['name']))
+        prop_id = self.clsdict.valid_properties_by_name[tag][name]
+        # Test for tagged data
+        tag_obj_id = None
+        tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        if isinstance(tag_obj, ObjectDict):
+            tag_obj_id = tag_obj.meta['object_id']
+        # TODO: Fix up everything under here
+        #if tag is not None:
+            # TODO: Ever multiple tags for the same data_id?
+            #tag_obj_id = self.clsdict.coad.get_by_object_id(tag).meta['object_id']
+        retval = None
+        # Get memberships for this object
+        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
+        for member in memberships:
+            print("Looking for %s in %s"%(prop_id, member['membership_id']))
+            # Get data_id(s) for each membership and property_id
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+            for data in all_data:
+                # If tag is set, retrieve data for only tag
+                if tag_obj_id is not None:
+                    # TODO: Ever multiple tags for the same data_id?
+                    tag_test = self.clsdict.coad.db['tag'].find_one({'data_id':data['data_id'], 'object_id':tag_obj_id})
+                    if tag_test is None:
+                        continue
+                # Make sure data isn't tagged
+                # Add to data
+                if retval is None:
+                    retval = data['value']
+                elif not isinstance(retval, list):
+                    retval = [retval, data['value']]
+                else:
+                    retval.append(data['value'])
+        return retval
+
+
+        #props = self.get_properties()
+        #if name not in props:
+        #    raise Exception('Object has no property "%s" set'%name)
+        #return props[name]
 
     def set_property(self, name, value):
         '''Set the value of a property by name

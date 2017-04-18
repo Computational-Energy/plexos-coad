@@ -99,11 +99,22 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
         collection_name = elem.tag[nsl+2:]
         if (collection_name != batch_collection and len(batch) > 0) or len(batch) > BATCH_SIZE:
             LOGGER.info("Loading %s documents to %s", len(batch), batch_collection)
+            # LOGGER.info("First doc is %s", batch[0])
+            # for b in batch:
+            #     try:
+            #         result = db[batch_collection].insert_one(b.copy())
+            #     except:
+            #         LOGGER.info("Choked on %s", b)
+            #         raise
+            #     if result.acknowledged:
+            #         doc_count += 1
+            #     else:
+            #         LOGGER.error("Error adding document %s to %s", doc, collection_name)
             result = db[batch_collection].insert_many(batch)
             if result.acknowledged:
-                doc_count += len(result.inserted_ids)
+               doc_count += len(result.inserted_ids)
             else:
-                LOGGER.error("Error adding document %s to %s", doc, collection_name)
+               LOGGER.error("Error adding document %s to %s", doc, collection_name)
             batch=[]
         batch_collection = collection_name
         # Create json document
