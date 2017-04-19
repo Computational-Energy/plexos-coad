@@ -72,6 +72,11 @@ class TestDB(unittest.TestCase):
         self.assertItemsEqual(should_contain,master_coad['Model']['Base'].get_children())
         self.assertItemsEqual([master_coad['Horizon']['Base']],master_coad['Model']['Base'].get_children('Horizon'))
 
+    def test_get_parents(self):
+        should_contain = [master_coad['System']['System'],master_coad['Model']['Base']]
+        self.assertItemsEqual(should_contain,master_coad['Horizon']['Base'].get_parents())
+        self.assertItemsEqual([master_coad['Model']['Base']],master_coad['Horizon']['Base'].get_parents('Model'))
+
     def test_get_class(self):
         g_class = master_coad['Performance']['Gurobi'].get_class()
         self.assertItemsEqual(master_coad['Performance'],g_class)
@@ -88,15 +93,15 @@ class TestDB(unittest.TestCase):
         coad = COAD(filename)
         # Get properties
         line = coad['Line']['126']
-        props = {'System':{'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}}
+        props = {'System.System':{'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}}
         self.assertEqual(line.get_properties(), props)
         # Get property
-        self.assertEqual(line.get_property('Max Flow', 'System'), '9900')
+        self.assertEqual(line.get_property('Max Flow', 'System.System'), '9900')
         # Get properties
         filename='coad/test/RTS-96.xml'
         coad=COAD(filename)
         g = coad['Generator']['101-1']
-        props = {'System':{'Mean Time to Repair': '50',
+        props = {'System.System':{'Mean Time to Repair': '50',
                      'Load Point': ['20', '19.8', '16', '15.8'],
                      'Heat Rate': ['15063', '14499', '14500', '15000'],
                      'Min Up Time': '1',
@@ -115,7 +120,7 @@ class TestDB(unittest.TestCase):
         # Tagged properties
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
 
-    def test_get(self):
+    def test_get_by_hierarchy(self):
         identifier='Performance.Gurobi.SOLVER'
         self.assertEqual(master_coad.get_by_hierarchy(identifier),'4')
         self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
@@ -174,6 +179,8 @@ class TestModifications(unittest.TestCase):
         self.assertIn('Test Base Model',copy_coad['Model'])
         should_contain = [copy_coad['Horizon']['Base'],copy_coad['Report']['Base'],copy_coad['ST Schedule']['Base']]
         self.assertItemsEqual(should_contain,copy_coad['Model']['Test Base Model'].get_children())
+        # TODO: Parent tests
+        self.assertItemsEqual([copy_coad['System']['System']], copy_coad['Model']['Test Base Model'].get_parents())
 
     def test_set_children(self):
         # Single new child
@@ -188,6 +195,46 @@ class TestModifications(unittest.TestCase):
         # TODO: Test multiple new children of different classes that overwrites existing
         # TODO: Test adding new child once collection functionality is understood
         # TODO: Add mix of new child classes once collection functionality is understood
+
+    def test_modify_single_properties(self):
+        '''Tests related to modifying properties with a single value
+        '''
+        filename='coad/test/118-Bus.xml'
+        coad=COAD(filename)
+        # Get properties
+        line = coad['Line']['126']
+        props = {'System.System':{'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}}
+        self.assertEqual(line.get_properties(), props)
+        # Get property
+        self.assertEqual(line.get_property('Max Flow'), '9900')
+        # Set property
+        line.set_property('Min Flow', '123456')
+        self.assertEqual(line.get_property('Min Flow'), '123456')
+        # Set properties
+        #new_props = {'Reactance': 'aaaa', 'Max Flow': 'bbbb', 'Min Flow': 'cccc', 'Resistance': 'dddd'}
+        #line_a = coad['Line']['027']
+        #line_a.set_properties(new_props)
+        # Test save and load
+        coad.save('coad/test/118-Bus_props_test.xml')
+        solar = COAD('coad/test/118-Bus_props_test.xml')
+        props['System.System']['Min Flow']='123456'
+        line = solar['Line']['126']
+        self.assertEqual(line.get_properties(), props)
+        #line_a = coad['Line']['027']
+        #self.assertEqual(line_a.get_properties(), new_props)
+
+
+
+    def test_modify_single_tagged_properties(self):
+        '''Tests related to modifying tagged properties with a single value
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
+        coad['Generator']['118-1'].set_property('Commit', 'totally_committed', 'Scenario.RT_UC')
+        coad.save('coad/test/RTS-96_props_test.xml')
+        saved_coad = COAD('coad/test/RTS-96_props_test.xml')
+        self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'totally_committed'})
     '''
 
 

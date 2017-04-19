@@ -316,6 +316,7 @@ class ObjectDict(collections.MutableMapping):
         #self.store = dict()
         self.clsdict = clsdict
         self.meta = meta
+        self.hierarchy = '%s.%s'%(self.clsdict.meta['name'], self.meta['name'])
 
     def __setitem__(self, key, value):
         if key not in self.clsdict.named_valid_attributes:
@@ -400,9 +401,15 @@ class ObjectDict(collections.MutableMapping):
             mship['membership_id'] = str(new_mship_id)
             new_mship_id += 1
             new_mships.append(mship)
-        # Copy data from parent memberships
         # Copy memberships where this is the child
-        # Copy data from child memberships
+        mships = self.clsdict.coad.db['membership'].find({'child_object_id': self.meta['object_id']}, { '_id': 0 })
+        for mship in mships:
+            mship['child_object_id'] = str(new_object_id)
+            mship['membership_id'] = str(new_mship_id)
+            new_mship_id += 1
+            new_mships.append(mship)
+        # TODO: Copy data from child memberships
+        #
         if len(new_mships) > 0:
             self.clsdict.coad.db['membership'].insert_many(new_mships)
         return self.clsdict[new_obj['name']]
@@ -414,7 +421,6 @@ class ObjectDict(collections.MutableMapping):
         Can handle either a single ObjectDict or list of ObjectDicts
         TODO: Validate that object is allowed to have the children passed in
         '''
-        # TODO: update for mongo
         # Convert objdict to list of objdict
         if isinstance(children, ObjectDict):
             children = [children]
@@ -441,6 +447,19 @@ class ObjectDict(collections.MutableMapping):
         if len(new_mships) > 0:
             self.clsdict.coad.db['membership'].insert_many(new_mships)
         return
+
+    def get_parents(self, class_name=None):
+        ''' Return a list of all parents that match the class name.  If class
+        name is None, return all parents
+        '''
+        parents = []
+        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
+        for member in memberships:
+            m_class = self.clsdict.coad.db['class'].find_one({'class_id':member['parent_class_id']},{'name':1})
+            if class_name is None or m_class['name'] == class_name:
+                m_obj = self.clsdict.coad.db['object'].find_one({'object_id':member['parent_object_id']},{'name':1})
+                parents.append(self.clsdict.coad[m_class['name']][m_obj['name']])
+        return parents
 
     def get_children(self, class_name=None):
         ''' Return a list of all children that match the class name.  If class
@@ -472,20 +491,21 @@ class ObjectDict(collections.MutableMapping):
         props = {}
         memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
         for member in memberships:
+            parent = self.clsdict.coad.get_by_object_id(member['parent_object_id'])
             data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
             for d in data:
-                # Check for tag
+                # Can parents and tags coexist? Yes!  It appears the data_id
+                # shown in the tag is the overwritten value of the default.
+                # Check for tag, which is modified data for a specific data_id
                 tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
-                parent = member['parent_class_id']
-                parent_meta = self.clsdict.coad.db['class'].find_one({'class_id':parent})
-                prop_class = parent_meta['name']
                 if tag is not None:
                     # TODO: Ever multiple tags for the same data_id?
                     tag_obj = self.clsdict.coad.get_by_object_id(tag['object_id'])
-                    tag_hier = "%s.%s"%(tag_obj.clsdict.meta['name'], tag_obj.meta['name'])
+                    #raise Exception("Found a tag! parent %s, tag %s"%(parent.hierarchy, tag_obj.hierarchy))
+                    tag_hier = tag_obj.hierarchy
                 else:
-                    tag_hier = prop_class
-                name = self.clsdict.valid_properties[prop_class][d['property_id']]['name']
+                    tag_hier = parent.hierarchy
+                name = self.clsdict.valid_properties[parent.clsdict.meta['name']][d['property_id']]['name']
                 value = d['value']
                 if tag_hier not in props:
                     props[tag_hier] = {}
@@ -498,12 +518,36 @@ class ObjectDict(collections.MutableMapping):
                         props[tag_hier][name].append(value)
         return props
 
-    def get_property(self, name, tag='System'):
+    def get_property(self, name, tag='System.System'):
         '''Return the value of a property by name
 
         Args:
             tag - ObjectDict or hierarchy string of data tag
         '''
+        if isinstance(tag, ObjectDict):
+            tag_obj = tag
+        else:
+            tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        tag_clsname = tag_obj.clsdict.meta['name']
+        # Reverse lookup of class.valid_properties to get property_id
+        if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
+            raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
+        prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
+        # Tag object should always be ObjectDict
+        tag_obj_id = tag_obj.meta['object_id']
+        member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
+        if member is None:
+            raise Exception("Unable to find membership for %s in %s"%(tag.hierarchy, self.hierarchy))
+        all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+        data_count = all_data.count()
+        if data_count == 0:
+            raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+        elif data_count == 1:
+            return all_data.next()['value']
+        else:
+            return [d['value'] for d in all_data]
+
+
         # Reverse lookup of class.valid_properties to get property_id
         if name not in self.clsdict.valid_properties_by_name[tag]:
             raise Exception('"%s" is not a valid property for class %s'%(name, self.clsdict.meta['name']))
@@ -518,10 +562,8 @@ class ObjectDict(collections.MutableMapping):
             # TODO: Ever multiple tags for the same data_id?
             #tag_obj_id = self.clsdict.coad.get_by_object_id(tag).meta['object_id']
         retval = None
-        # Get memberships for this object
         memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
         for member in memberships:
-            print("Looking for %s in %s"%(prop_id, member['membership_id']))
             # Get data_id(s) for each membership and property_id
             all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
             for data in all_data:
@@ -531,7 +573,6 @@ class ObjectDict(collections.MutableMapping):
                     tag_test = self.clsdict.coad.db['tag'].find_one({'data_id':data['data_id'], 'object_id':tag_obj_id})
                     if tag_test is None:
                         continue
-                # Make sure data isn't tagged
                 # Add to data
                 if retval is None:
                     retval = data['value']
@@ -541,71 +582,60 @@ class ObjectDict(collections.MutableMapping):
                     retval.append(data['value'])
         return retval
 
+    def set_property(self, name, value, tag='System.System'):
+        '''Set the value of a property by name.
+        Limited to modifying existing values.  Will not add new data.
 
-        #props = self.get_properties()
-        #if name not in props:
-        #    raise Exception('Object has no property "%s" set'%name)
-        #return props[name]
-
-    def set_property(self, name, value):
-        '''Set the value of a property by name
+        Returns: True on success, False otherwise
         '''
-        raise Exception('Opertation not supported yet')
-
-        # If list do something else
         if isinstance(value, list):
-            raise Exception('Opertation not supported yet')
-        # Find data id(s), has to be done by membership + child_object_id
-        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
-        for member in memberships:
-            data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
-            for d in data:
-                if name == self.clsdict.coad.valid_properties[d['property_id']]:
-                    # Update here
-                    # TODO: Multiple values
-                    pass
-        prop_id = None
-        for (pi, pn) in self.clsdict.coad.valid_properties.iteritems():
-            if pn == name:
-                prop_id = pi
-                break
-        if prop_id is None:
-            raise Exception('Object has no valid property "%s"'%name)
-        # If list do something else
-        if isinstance(value, list):
-            raise Exception('Opertation not supported yet')
-        # Update value
-        self.clsdict.coad.db['data'].update()
-        #TODO: Handle arrays of values
-        cur = self.coad.dbcon.cursor()
-        cur.execute("""SELECT d.data_id FROM data d
-            INNER JOIN property p ON p.property_id = d.property_id
-            WHERE p.name=?
-            AND membership_id IN
-            (SELECT membership_id FROM membership WHERE child_object_id=?)""",
-                    [name, self.meta['object_id']])
-        match_data = cur.fetchall()
-        if isinstance(value, list):
-            if len(value) != len(match_data):
-                msg = 'Property "%s" expects %s values, %s provided'
-                raise Exception(msg%(name, len(match_data), len(value)))
-            cur.executemany('UPDATE data SET value=? WHERE data_id=?',
-                            zip(value, [x[0] for x in match_data]))
-        elif len(match_data) != 1:
-            raise Exception('Unable to find single property to modify for %s'%name)
+            raise Exception("Overwriting list of data not supported yet")
+        tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        tag_clsname = tag_obj.clsdict.meta['name']
+        # If the tagged class doesn't have the property as valid, it's set as a
+        # tag
+        if tag_clsname not in self.clsdict.valid_properties_by_name:
+            possible_tags = self.clsdict.coad.db['tag'].find({'object_id':tag_obj.meta['object_id']})
+            for ptag in possible_tags:
+                # Get property name, see if it matches name
+                ptag_data = self.clsdict.coad.db['data'].find_one({'data_id':ptag['data_id']})
+                ptag_prop = self.clsdict.coad.db['property'].find_one({'property_id':ptag_data['property_id']})
+                if ptag_prop['name'] == name:
+                    # If it does, see if the membership matches this object
+                    ptag_member = self.clsdict.coad.db['membership'].find_one({'membership_id':ptag_data['membership_id']})
+                    # If it matches, set the value
+                    if ptag_member['child_object_id'] == self.meta['object_id']:
+                        self.clsdict.coad.db['data'].update(ptag_data, {'$set': {'value': value}})
+                        return
+            raise Exception("No tagged data found for %s in %s"%(tag, self.hierarchy))
+        # Reverse lookup of class.valid_properties to get property_id
+        if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
+            raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
+        prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
+        # Tag object should always be ObjectDict
+        tag_obj_id = tag_obj.meta['object_id']
+        member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
+        if member is None:
+            raise Exception("Unable to find membership for %s in %s"%(tag, self.meta['name']))
+        all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+        data_count = all_data.count()
+        if data_count == 0:
+            raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+        elif data_count == 1:
+            # Can replace this data
+            data = all_data.next()
+            self.clsdict.coad.db['data'].update(data, {'$set': {'value': value}})
         else:
-            data_id = match_data[0][0]
-            cur.execute("""UPDATE data SET value=? WHERE data_id=?""", [value, data_id])
-            if cur.rowcount != 1:
-                raise Exception('Unable to set property %s, %s rows affected'%(name, cur.rowcount))
-        self.coad.dbcon.commit()
+            raise Exception('Overwriting list of data not supported yet')
 
     def set_properties(self, new_dict):
-        '''Set all the propery values present in dict
+        '''NOT IMPLEMENTED WITH NEW PROPERTY INFO
+        Set all the propery values present in dict
 
             NOTE: This is not transactional.  A failure may leave some values set,
             others not set.
         '''
+        raise Exception('Operation not implemented')
         for name, value in new_dict.iteritems():
             self.set_property(name, value)
 
@@ -625,32 +655,29 @@ class ObjectDict(collections.MutableMapping):
                 print(spacing+'        %s = %s'%atr)
         else:
             print(spacing+'    No attributes set')
-        children = self.get_children()
-        # TODO: Check for peers where one is a child of the other
-        kids = []
-        peers = []
-        if len(children):
-            for c in children:
-                has_peer = False
-                for cc in c.get_children(self.clsdict.meta['name']):
-                    if cc.meta['object_id'] == self.meta['object_id']:
-                        peers.append(c)
-                        has_peer = True
-                        break
-                if not has_peer:
-                    kids.append(c)
+        all_children = set([o.hierarchy for o in self.get_children()])
+        all_parents = set([o.hierarchy for o in self.get_parents()])
+        children = all_children - all_parents
+        parents = all_parents - all_children
+        peers = all_children & all_parents
+        if len(parents):
+            print(spacing+'    Parents (%s):'%len(parents))
+            for p in parents:
+                msg = '        '+p
+                print(spacing + msg)
+        else:
+            print(spacing+'    No parents')
         if len(peers):
             print(spacing+'    Peers (%s):'%len(peers))
             for p in peers:
-                msg = '        {:<30}        Class: {}'.format(p.meta['name'],
-                                                           p.clsdict.meta['name'])
+                msg = '        '+p
                 print(spacing + msg)
         else:
             print(spacing+'    No peers')
-        if len(kids):
-            print(spacing+'    Children (%s):'%len(kids))
-            for k in kids:
-                k.dump(recursion_level+1)
+        if len(children):
+            print(spacing+'    Children (%s):'%len(children))
+            for k in children:
+                self.clsdict.coad.get_by_hierarchy(k).dump(recursion_level+1)
         else:
             print(spacing+'    No children')
 
