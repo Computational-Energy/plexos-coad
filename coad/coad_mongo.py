@@ -301,6 +301,33 @@ class ClassDict(collections.MutableMapping):
             raise Exception(msg%(self.meta['class_id'], child_class_id))
         return collection['collection_id']
 
+    def get_categories(self):
+        ''' Return a list of category dicts available for objects of this class, ordered
+        by rank.
+        '''
+        categories_cur = self.coad.db['category'].find({'class_id':self.meta['class_id']})
+        # Everything is a string in mongo, so need to sort by function
+        categories = sorted(categories_cur, key=lambda c: int(c['rank']))
+        return categories
+
+    def add_category(self, name):
+        ''' Add a new category to this class, not allowing duplicated names in class
+        '''
+        # TODO: Implement counters for all important _id attributes
+        cat_id_list = self.coad.db['category'].find( {}, { '_id': 0, 'category_id':1 } )
+        last_cat_id = max(map(int, [x['category_id'] for x in cat_id_list]))
+        categories_cur = self.coad.db['category'].find({'class_id':self.meta['class_id']})
+        lastrank = 0
+        for cat in categories_cur:
+            if name == cat['name']:
+                raise Exception("Category %s already exists in %s"%(name, self.meta['name']))
+            lastrank = max(lastrank, int(cat['rank']))
+        newcat = {'name':name, 'rank':str(lastrank+1), 'category_id':str(last_cat_id+1), 'class_id':self.meta['class_id']}
+        self.coad.db['category'].insert(newcat)
+
+    # TODO: Any need for remove category?  Would have to change objects that use
+    # the deleted category to the default
+
 
 class ObjectDict(collections.MutableMapping):
     ''' Overwrites the setitem method to allow updates to data and dict
@@ -368,26 +395,27 @@ class ObjectDict(collections.MutableMapping):
             attribute_data entries as well.
             # TODO: Enforce unique naming
         '''
-        # TODO: update for mongo
         obj_id_list = self.clsdict.coad.db['object'].find( {}, { '_id': 0, 'object_id':1 } )
         last_obj_id = max(map(int, [x['object_id'] for x in obj_id_list]))
         new_object_id = last_obj_id + 1;
-        new_obj = self.clsdict.coad.db['object'].find({'object_id':self.meta['object_id']}, {'_id':0})[0]
+        new_obj = self.clsdict.coad.db['object'].find_one({'object_id':self.meta['object_id']}, {'_id':0})
         new_obj['object_id'] = str(new_object_id)
         if newname is None:
             new_obj['name'] = new_obj['name'] + '-' + str(uuid.uuid4())
         else:
             new_obj['name'] = newname
+        # GUID has been put in some versions of Plexos
+        if 'GUID' in self.meta:
+            new_obj['GUID'] = uuid.uuid4()
         self.clsdict.coad.db['object'].insert_one(new_obj)
-        # Add obj to class list
-        #self.clsdict.store[new_obj['name']] = ObjectDict(self.clsdict, new_obj)
         # Copy attributes
         new_atts = []
         att_list = self.clsdict.coad.db['attribute_data'].find( {'object_id':self.meta['object_id']}, { '_id': 0 } )
         for att in att_list:
             att['object_id'] = str(new_object_id)
             new_atts.append(att)
-        self.clsdict.coad.db['attribute_data'].insert_many(new_atts)
+        if len(new_atts) > 0:
+            self.clsdict.coad.db['attribute_data'].insert_many(new_atts)
         # Get highest membership_id
         # TODO: Something bad may happen if object has no memberships
         mship_id_list = self.clsdict.coad.db['membership'].find( {}, { '_id': 0, 'membership_id':1 } )
@@ -473,6 +501,22 @@ class ObjectDict(collections.MutableMapping):
                 m_obj = self.clsdict.coad.db['object'].find_one({'object_id':member['child_object_id']},{'name':1})
                 children.append(self.clsdict.coad[m_class['name']][m_obj['name']])
         return children
+
+    def get_category(self):
+        ''' Return the name of this object's category
+        '''
+        category = self.clsdict.coad.db['category'].find_one({'category_id':self.meta['category_id']})
+        return category['name']
+
+    def set_category(self, name):
+        ''' Set this object's category to name
+        '''
+        available_cats = self.clsdict.get_categories()
+        for cat in available_cats:
+            if cat['name'] == name:
+                self.clsdict.coad.db['object'].update({"object_id":self.meta['object_id']}, {'$set': {'category_id': cat['category_id']}})
+                return
+        raise Exception("No such category %s for class %s"%(name, self.clsdict.meta['name']))
 
     def get_class(self):
         ''' Return the ClassDict that contains this object

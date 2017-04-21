@@ -147,6 +147,13 @@ class TestDB(unittest.TestCase):
             }
         self.assertEqual(expected, master_coad['Generator'].valid_properties_by_name['Emission'])
 
+    def test_get_categories(self):
+        '''Test class and object category retrieval
+        '''
+        self.assertEqual("-", master_coad['Performance'].get_categories()[0]['name'])
+        self.assertEqual("-", master_coad['Performance']['Gurobi'].get_category())
+
+
 class TestModifications(unittest.TestCase):
 
     def test_set(self):
@@ -235,6 +242,18 @@ class TestModifications(unittest.TestCase):
         coad.save('coad/test/RTS-96_props_test.xml')
         saved_coad = COAD('coad/test/RTS-96_props_test.xml')
         self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'totally_committed'})
+
+    def test_add_set_category(self):
+        '''Test category creation for class and set for object
+        '''
+        copy_coad = COAD('coad/master.xml')
+        master_coad['Performance'].add_category("Test Category")
+        new_cat = master_coad['Performance'].get_categories()[1]
+        self.assertEqual("Test Category", new_cat['name'])
+        self.assertEqual("1", new_cat['rank'])
+        master_coad['Performance']['Gurobi'].set_category("Test Category")
+        self.assertEqual("Test Category", master_coad['Performance']['Gurobi'].get_category())
+
     '''
 
 
