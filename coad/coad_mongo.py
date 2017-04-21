@@ -406,7 +406,7 @@ class ObjectDict(collections.MutableMapping):
             new_obj['name'] = newname
         # GUID has been put in some versions of Plexos
         if 'GUID' in self.meta:
-            new_obj['GUID'] = uuid.uuid4()
+            new_obj['GUID'] = str(uuid.uuid4())
         self.clsdict.coad.db['object'].insert_one(new_obj)
         # Copy attributes
         new_atts = []
@@ -639,6 +639,7 @@ class ObjectDict(collections.MutableMapping):
         # If the tagged class doesn't have the property as valid, it's set as a
         # tag
         if tag_clsname not in self.clsdict.valid_properties_by_name:
+            # Modify if value is already set
             possible_tags = self.clsdict.coad.db['tag'].find({'object_id':tag_obj.meta['object_id']})
             for ptag in possible_tags:
                 # Get property name, see if it matches name
@@ -649,28 +650,51 @@ class ObjectDict(collections.MutableMapping):
                     ptag_member = self.clsdict.coad.db['membership'].find_one({'membership_id':ptag_data['membership_id']})
                     # If it matches, set the value
                     if ptag_member['child_object_id'] == self.meta['object_id']:
+                        # Make sure property has dynamic set to true
+                        if ptag_prop['is_dynamic'] != 'true':
+                            self.clsdict.coad.db['property'].update(ptag_prop, {'$set': {'is_dynamic': 'true'}})
                         self.clsdict.coad.db['data'].update(ptag_data, {'$set': {'value': value}})
                         return
-            raise Exception("No tagged data found for %s in %s"%(tag, self.hierarchy))
-        # Reverse lookup of class.valid_properties to get property_id
-        if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
-            raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
-        prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
-        # Tag object should always be ObjectDict
-        tag_obj_id = tag_obj.meta['object_id']
-        member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
-        if member is None:
-            raise Exception("Unable to find membership for %s in %s"%(tag, self.meta['name']))
-        all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
-        data_count = all_data.count()
-        if data_count == 0:
-            raise Exception("No exisiting data found for membership %s"%member['membership_id'])
-        elif data_count == 1:
-            # Can replace this data
-            data = all_data.next()
-            self.clsdict.coad.db['data'].update(data, {'$set': {'value': value}})
+            # Add new tag and data here
+            prop_id = self.clsdict.valid_properties_by_name['System'][name]
+            prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+            # Make sure is_dynamic is set to true
+            if prop['is_dynamic'] != 'true':
+                self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true'}})
+            # Add new data
+            data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
+            last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
+            last_uid = max(map(int, [x['uid'] for x in data_id_list]))
+            sys_obj = self.clsdict.coad.get_by_hierarchy('System.System')
+            member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':sys_obj.meta['object_id']}, {'membership_id':1})
+            self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id+1),
+                                         'uid':str(last_uid+1),
+                                         'membership_id':member['membership_id'],
+                                         'value':value,
+                                         'property_id':prop_id})
+            # Add new tag
+            self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id+1),
+                                        'object_id':tag_obj.meta['object_id']})
         else:
-            raise Exception('Overwriting list of data not supported yet')
+            # Reverse lookup of class.valid_properties to get property_id
+            if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
+                raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
+            prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
+            # Tag object should always be ObjectDict
+            tag_obj_id = tag_obj.meta['object_id']
+            member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
+            if member is None:
+                raise Exception("Unable to find membership for %s in %s"%(tag, self.meta['name']))
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+            data_count = all_data.count()
+            if data_count == 0:
+                raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+            elif data_count == 1:
+                # Can replace this data
+                data = all_data.next()
+                self.clsdict.coad.db['data'].update(data, {'$set': {'value': value}})
+            else:
+                raise Exception('Overwriting list of data not supported yet')
 
     def set_properties(self, new_dict):
         '''NOT IMPLEMENTED WITH NEW PROPERTY INFO

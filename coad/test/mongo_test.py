@@ -239,9 +239,14 @@ class TestModifications(unittest.TestCase):
         coad = COAD(filename)
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
         coad['Generator']['118-1'].set_property('Commit', 'totally_committed', 'Scenario.RT_UC')
+        # Test that dynamic flag is not set for Unit Commitment Optimality
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
+        coad['Generator']['118-1'].set_property('Unit Commitment Optimality', 'I hate input masks', 'Scenario.RT_UC')
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'true')
         coad.save('coad/test/RTS-96_props_test.xml')
         saved_coad = COAD('coad/test/RTS-96_props_test.xml')
-        self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'totally_committed'})
+        expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'I hate input masks'}
+        self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'], expected)
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
