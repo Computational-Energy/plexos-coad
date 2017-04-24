@@ -550,7 +550,18 @@ class ObjectDict(collections.MutableMapping):
                 else:
                     tag_hier = parent.hierarchy
                 name = self.clsdict.valid_properties[parent.clsdict.meta['name']][d['property_id']]['name']
-                value = d['value']
+                # Test for input mask, substituting if needed
+                prop = self.clsdict.coad.db['property'].find_one({'property_id':d['property_id']})
+                valdict = {}
+                if 'input_mask' in prop:
+                    mask = prop['input_mask'].split(";")
+                    it = iter(mask)
+                    for k in it:
+                        valdict[str(k)] = next(it).strip("\"")
+                if d['value'] in valdict:
+                    value = valdict[d['value']]
+                else:
+                    value = d['value']
                 if tag_hier not in props:
                     props[tag_hier] = {}
                 if name not in props[tag_hier]:
@@ -567,6 +578,8 @@ class ObjectDict(collections.MutableMapping):
 
         Args:
             tag - ObjectDict or hierarchy string of data tag
+
+        Returns: string for single value, list for multiple values
         '''
         if isinstance(tag, ObjectDict):
             tag_obj = tag
@@ -582,49 +595,28 @@ class ObjectDict(collections.MutableMapping):
         member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
         if member is None:
             raise Exception("Unable to find membership for %s in %s"%(tag.hierarchy, self.hierarchy))
+        # Test for input mask, substituting if needed
+        prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+        valdict = {}
+        if 'input_mask' in prop:
+            mask = prop['input_mask'].split(";")
+            it = iter(mask)
+            for k in it:
+                valdict[str(k)] = next(it).strip("\"")
+        def valmap(val):
+            if val in valdict:
+                return valdict[val]
+            else:
+                return val
         all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
         data_count = all_data.count()
+        mapped_data = [valmap(d['value']) for d in all_data]
         if data_count == 0:
             raise Exception("No exisiting data found for membership %s"%member['membership_id'])
         elif data_count == 1:
-            return all_data.next()['value']
+            return mapped_data[0]
         else:
-            return [d['value'] for d in all_data]
-
-
-        # Reverse lookup of class.valid_properties to get property_id
-        if name not in self.clsdict.valid_properties_by_name[tag]:
-            raise Exception('"%s" is not a valid property for class %s'%(name, self.clsdict.meta['name']))
-        prop_id = self.clsdict.valid_properties_by_name[tag][name]
-        # Test for tagged data
-        tag_obj_id = None
-        tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
-        if isinstance(tag_obj, ObjectDict):
-            tag_obj_id = tag_obj.meta['object_id']
-        # TODO: Fix up everything under here
-        #if tag is not None:
-            # TODO: Ever multiple tags for the same data_id?
-            #tag_obj_id = self.clsdict.coad.get_by_object_id(tag).meta['object_id']
-        retval = None
-        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
-        for member in memberships:
-            # Get data_id(s) for each membership and property_id
-            all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
-            for data in all_data:
-                # If tag is set, retrieve data for only tag
-                if tag_obj_id is not None:
-                    # TODO: Ever multiple tags for the same data_id?
-                    tag_test = self.clsdict.coad.db['tag'].find_one({'data_id':data['data_id'], 'object_id':tag_obj_id})
-                    if tag_test is None:
-                        continue
-                # Add to data
-                if retval is None:
-                    retval = data['value']
-                elif not isinstance(retval, list):
-                    retval = [retval, data['value']]
-                else:
-                    retval.append(data['value'])
-        return retval
+            return mapped_data
 
     def set_property(self, name, value, tag='System.System'):
         '''Set the value of a property by name.
@@ -636,6 +628,23 @@ class ObjectDict(collections.MutableMapping):
             raise Exception("Overwriting list of data not supported yet")
         tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
         tag_clsname = tag_obj.clsdict.meta['name']
+        # Commonly used method for converting human value to stored value
+        def get_mask_value(prop, value):
+            '''Using the property input_mask attribute, map value to a valid
+            value and return it'''
+            valdict = {}
+            if 'input_mask' in prop:
+                vv = []
+                mask = prop['input_mask'].split(";")
+                it = iter(mask)
+                for k in it:
+                    mval = next(it).strip("\"")
+                    if mval == value:
+                        return k
+                    vv.append(mval)
+                raise Exception("Value '%s' not in property's input_mask.  Valid values are:\n%s\n"%(value,'\n'.join(vv)))
+            else:
+                return value
         # If the tagged class doesn't have the property as valid, it's set as a
         # tag
         if tag_clsname not in self.clsdict.valid_properties_by_name:
@@ -650,14 +659,19 @@ class ObjectDict(collections.MutableMapping):
                     ptag_member = self.clsdict.coad.db['membership'].find_one({'membership_id':ptag_data['membership_id']})
                     # If it matches, set the value
                     if ptag_member['child_object_id'] == self.meta['object_id']:
+                        # Get the masked value before is_dynamic is updated
+                        m_value = get_mask_value(ptag_prop, value)
                         # Make sure property has dynamic set to true
                         if ptag_prop['is_dynamic'] != 'true':
                             self.clsdict.coad.db['property'].update(ptag_prop, {'$set': {'is_dynamic': 'true'}})
-                        self.clsdict.coad.db['data'].update(ptag_data, {'$set': {'value': value}})
+                        self.clsdict.coad.db['data'].update(ptag_data, {'$set': {'value': m_value}})
                         return
             # Add new tag and data here
             prop_id = self.clsdict.valid_properties_by_name['System'][name]
             prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+            # Get the masked value before is_dynamic is updated
+            m_value = get_mask_value(prop, value)
+            print("Got mvalue %s for %s"%(m_value, value))
             # Make sure is_dynamic is set to true
             if prop['is_dynamic'] != 'true':
                 self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true'}})
@@ -670,7 +684,7 @@ class ObjectDict(collections.MutableMapping):
             self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id+1),
                                          'uid':str(last_uid+1),
                                          'membership_id':member['membership_id'],
-                                         'value':value,
+                                         'value':m_value,
                                          'property_id':prop_id})
             # Add new tag
             self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id+1),
@@ -680,6 +694,7 @@ class ObjectDict(collections.MutableMapping):
             if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
                 raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
             prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
+            prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
             # Tag object should always be ObjectDict
             tag_obj_id = tag_obj.meta['object_id']
             member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
@@ -692,7 +707,7 @@ class ObjectDict(collections.MutableMapping):
             elif data_count == 1:
                 # Can replace this data
                 data = all_data.next()
-                self.clsdict.coad.db['data'].update(data, {'$set': {'value': value}})
+                self.clsdict.coad.db['data'].update(data, {'$set': {'value': get_mask_value(prop, value)}})
             else:
                 raise Exception('Overwriting list of data not supported yet')
 

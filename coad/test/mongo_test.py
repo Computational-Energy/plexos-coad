@@ -98,8 +98,8 @@ class TestDB(unittest.TestCase):
         # Get property
         self.assertEqual(line.get_property('Max Flow', 'System.System'), '9900')
         # Get properties
-        filename='coad/test/RTS-96.xml'
-        coad=COAD(filename)
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
         g = coad['Generator']['101-1']
         props = {'System.System':{'Mean Time to Repair': '50',
                      'Load Point': ['20', '19.8', '16', '15.8'],
@@ -119,6 +119,13 @@ class TestDB(unittest.TestCase):
         self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
         # Tagged properties
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
+
+    def test_get_property_with_input_mask(self):
+        '''Test property value input mask
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        self.assertEqual(coad['Node']['101'].get_property("Is Slack Bus"), "Yes")
 
     def test_get_by_hierarchy(self):
         identifier='Performance.Gurobi.SOLVER'
@@ -230,8 +237,6 @@ class TestModifications(unittest.TestCase):
         #line_a = coad['Line']['027']
         #self.assertEqual(line_a.get_properties(), new_props)
 
-
-
     def test_modify_single_tagged_properties(self):
         '''Tests related to modifying tagged properties with a single value
         '''
@@ -241,11 +246,15 @@ class TestModifications(unittest.TestCase):
         coad['Generator']['118-1'].set_property('Commit', 'totally_committed', 'Scenario.RT_UC')
         # Test that dynamic flag is not set for Unit Commitment Optimality
         self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
-        coad['Generator']['118-1'].set_property('Unit Commitment Optimality', 'I hate input masks', 'Scenario.RT_UC')
+        self.assertRaises(Exception, coad['Generator']['118-1'].set_property, 'Unit Commitment Optimality', 'I hate input masks', 'Scenario.RT_UC')
+        # Make sure invalid assignment does not trigger is_dynamic=true
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
+        # This tag isn't set at all
+        coad['Generator']['118-1'].set_property('Unit Commitment Optimality', 'Rounded Relaxation', 'Scenario.RT_UC')
         self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'true')
         coad.save('coad/test/RTS-96_props_test.xml')
         saved_coad = COAD('coad/test/RTS-96_props_test.xml')
-        expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'I hate input masks'}
+        expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'Rounded Relaxation'}
         self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'], expected)
 
     def test_add_set_category(self):
