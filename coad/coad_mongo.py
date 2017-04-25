@@ -671,7 +671,6 @@ class ObjectDict(collections.MutableMapping):
             prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
             # Get the masked value before is_dynamic is updated
             m_value = get_mask_value(prop, value)
-            print("Got mvalue %s for %s"%(m_value, value))
             # Make sure is_dynamic is set to true
             if prop['is_dynamic'] != 'true':
                 self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true'}})
