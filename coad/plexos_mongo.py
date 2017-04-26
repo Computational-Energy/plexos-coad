@@ -10,7 +10,6 @@ try:
     import resource
     has_resource = True
 except ImportError: pass
-#import sqlite3 as sql
 import sys
 import tempfile
 import time

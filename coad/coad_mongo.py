@@ -2,7 +2,8 @@
 
 This module contains tools for manipulating Plexos data files outside of the
 Plexos UI.  It loads the xml file into a mongo database for further inspection
-and modification.
+and modification.  Mongdb is started on first class instantiation and stopped on
+python exit.
 
 Example:
     from coad_mongo import COAD
@@ -13,13 +14,17 @@ Example:
     coad_new = COAD("master_new.xml")
     print("After set, solver is %s"%coad['Performance']['Gurobi']['SOLVER'])
 """
+import atexit
 import collections
 import os
 import pymongo
-#import sqlite3 as sql
+import subprocess
+import sys
 import uuid
 
 import plexos_mongo
+
+MONGODB_PROC = None
 
 class COAD(collections.MutableMapping):
     '''Edit models, horizons, memberships and object attributes of plexos data.
@@ -31,7 +36,8 @@ class COAD(collections.MutableMapping):
     The class presents a map of class names to ClassDict objects
     '''
 
-    def __init__(self, filename=None, reload=True, host='localhost', port=27017):
+    def __init__(self, filename=None, reload=True, host='localhost', port=27017,
+                 start_mongodb=True):
         '''Initialize the COAD object, populating Classes, Objects and Attributes
 
         Args:
@@ -40,9 +46,18 @@ class COAD(collections.MutableMapping):
             reload - Reload the mongo database from file, defaults to True
             host - Hostname of MongoDB
             port - Port of MongoDB
+            start_mongodb - Attempt to start mongodb, ignoring host and port options
         '''
         if filename is None:
             filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), "master.xml")
+        # Attempt to start mongodb if not already started
+        if start_mongodb and sys.modules[__name__].MONGODB_PROC is None:
+            #sys.modules[__name__].MONGODB_PROC = subprocess.Popen('mongod', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            with open('mongod_log.txt', 'w') as mlog:
+                sys.modules[__name__].MONGODB_PROC = subprocess.Popen('mongod', stdout=mlog)
+            host = 'localhost'
+            port = 27017
+            atexit.register(sys.modules[__name__].MONGODB_PROC.terminate)
         # Check for database in mongo.
         dbname = os.path.basename(filename).translate(None, '.$')
         if not reload:
