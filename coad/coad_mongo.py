@@ -53,8 +53,12 @@ class COAD(collections.MutableMapping):
         # Attempt to start mongodb if not already started
         if start_mongodb and sys.modules[__name__].MONGODB_PROC is None:
             #sys.modules[__name__].MONGODB_PROC = subprocess.Popen('mongod', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                os.mkdir('mongo_data')
+            except OSError:
+                pass
             with open('mongod_log.txt', 'w') as mlog:
-                sys.modules[__name__].MONGODB_PROC = subprocess.Popen('mongod', stdout=mlog)
+                sys.modules[__name__].MONGODB_PROC = subprocess.Popen(['mongod', '--dbpath', 'mongo_data'], stdout=mlog)
             host = 'localhost'
             port = 27017
             atexit.register(sys.modules[__name__].MONGODB_PROC.terminate)
