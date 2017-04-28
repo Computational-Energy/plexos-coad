@@ -58,7 +58,7 @@ class COAD(collections.MutableMapping):
             except OSError:
                 pass
             with open('mongod_log.txt', 'w') as mlog:
-                sys.modules[__name__].MONGODB_PROC = subprocess.Popen(['mongod', '--dbpath', 'mongo_data'], stdout=mlog)
+                sys.modules[__name__].MONGODB_PROC = subprocess.Popen(['mongod', '--dbpath', 'mongo_data'], stdout=mlog, stderr=mlog)
             host = 'localhost'
             port = 27017
             atexit.register(sys.modules[__name__].MONGODB_PROC.terminate)
@@ -423,6 +423,10 @@ class ObjectDict(collections.MutableMapping):
             new_obj['name'] = new_obj['name'] + '-' + str(uuid.uuid4())
         else:
             new_obj['name'] = newname
+        # Verify there is no existing object of this class with this name
+        exist_obj = self.clsdict.coad.db['object'].find_one({'class_id':self.meta['class_id'], 'name':new_obj['name']}, {'_id':0})
+        if exist_obj:
+            raise Exception("Duplicate name '%s' for same class"%new_obj['name'])
         # GUID has been put in some versions of Plexos
         if 'GUID' in self.meta:
             new_obj['GUID'] = str(uuid.uuid4())

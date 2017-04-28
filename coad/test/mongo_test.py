@@ -193,8 +193,8 @@ class TestModifications(unittest.TestCase):
         self.assertIn('Test Base Model',copy_coad['Model'])
         should_contain = [copy_coad['Horizon']['Base'],copy_coad['Report']['Base'],copy_coad['ST Schedule']['Base']]
         self.assertItemsEqual(should_contain,copy_coad['Model']['Test Base Model'].get_children())
-        # TODO: Parent tests
         self.assertItemsEqual([copy_coad['System']['System']], copy_coad['Model']['Test Base Model'].get_parents())
+        self.assertRaises(Exception, copy_coad['Model']['Base'].copy, 'Test Base Model')
 
     def test_set_children(self):
         # Single new child
