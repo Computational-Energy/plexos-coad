@@ -261,12 +261,12 @@ class TestModifications(unittest.TestCase):
         '''Test category creation for class and set for object
         '''
         copy_coad = COAD('coad/master.xml')
-        master_coad['Performance'].add_category("Test Category")
-        new_cat = master_coad['Performance'].get_categories()[1]
+        copy_coad['Performance'].add_category("Test Category")
+        new_cat = copy_coad['Performance'].get_categories()[1]
         self.assertEqual("Test Category", new_cat['name'])
         self.assertEqual("1", new_cat['rank'])
-        master_coad['Performance']['Gurobi'].set_category("Test Category")
-        self.assertEqual("Test Category", master_coad['Performance']['Gurobi'].get_category())
+        copy_coad['Performance']['Gurobi'].set_category("Test Category")
+        self.assertEqual("Test Category", copy_coad['Performance']['Gurobi'].get_category())
 
     '''
 

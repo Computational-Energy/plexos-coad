@@ -76,7 +76,9 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
     root_element = None
     t_check = ""
     doc_count = 0
-    #dbcon = sql.connect(dbfilename)
+    # T_ and Element order information
+    t_order = []
+    e_order = {}
     context = etree.iterparse(xml_file, events=('end', 'start-ns', 'start'))
     forkeys = [] # Foreign key list to add at the end of upload
     batch = [] # For batch insertion
@@ -96,6 +98,9 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
         if not elem.tag.startswith(t_check):
             continue
         collection_name = elem.tag[nsl+2:]
+        if collection_name not in t_order:
+            t_order.append(collection_name)
+            e_order[collection_name] = []
         if (collection_name != batch_collection and len(batch) > 0) or len(batch) > BATCH_SIZE:
             LOGGER.info("Loading %s documents to %s", len(batch), batch_collection)
             # LOGGER.info("First doc is %s", batch[0])
@@ -116,11 +121,14 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
                LOGGER.error("Error adding document %s to %s", doc, collection_name)
             batch=[]
         batch_collection = collection_name
-        # Create json document
-        # Add document to collection
+        # Add document to batch for this collection
         doc = {}
         for el_data in elem.getchildren():
-            doc[el_data.tag[nsl:]] = el_data.text
+            el_name = el_data.tag[nsl:]
+            doc[el_name] = el_data.text
+            # Make sure order is saved in META_DOC
+            if el_name not in e_order[collection_name]:
+                e_order[collection_name].append(el_name)
         batch.append(doc)
         #result = db[collection_name].insert_one(doc)
         #if result.acknowledged:
@@ -135,6 +143,8 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
         else:
             LOGGER.error("Error adding document %s to %s", doc, collection_name)
     LOGGER.info('Loaded %s documents in %d seconds',doc_count,(time.time()-start_time))
+    # Store order in META_TABLE
+    db[META_TABLE].insert({'t_order':t_order, 'e_order':e_order})
     # Indexes needed to speed up certain operations
     db['attribute'].create_index('object_id')
     db['attribute_data'].create_index('object_id')
@@ -164,12 +174,21 @@ def save(db, filename):
         # strings to bytes or open the file with an encoding.  There is no
         # easy write for all data types
         # TODO: Support all root_element and namespace defs
+        all_orders = db[META_TABLE].find({}, {'_id':0})
+        if all_orders.count() == 0:
+            raise Exception("No metadata availble to write file")
+        order = next(all_orders)
+        t_order = order['t_order']
+        e_order = order['e_order']
         fout.write('<%s xmlns="%s">\r\n'%("MasterDataSet", "http://tempuri.org/MasterDataSet.xsd"))
-        for col in sorted(db.collection_names()):
+        for col in t_order:
             for doc in db[col].find({}, {'_id':0}):
                 fout.write('  ')
                 ele = etree.Element('t_' + col)
-                for (sube, val) in doc.items():
+                for sube in e_order[col]:
+                    if sube not in doc:
+                        continue
+                    val = doc[sube]
                     # Uncommenting the following will ignore subelements with no values
                     # Sometimes missing subelements with no values were crashing plexos.
                     # See issue #54
