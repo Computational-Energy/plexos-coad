@@ -1,56 +1,75 @@
 from coad.COAD import COAD, ObjectDict
 import unittest
 
-class TestDB(unittest.TestCase):
-    _multiprocess_can_split_=False
-    def setUp(self):
-        # TODO: Move into setupclass for big files
-        # May have to copy data in the write tests to avoid poisoning the other tests
-        filename='coad/master.xml'
-        #filename='test/118-Bus.xml'
-        #filename='test/Solar33P.xml'
-        #filename='test/WFIP-MISO.xml'
-        #filename='test/WWSIS.xml'
-        self.coad=COAD(filename)
+# Only load the master once
+master_coad = COAD('coad/master.xml')
 
+class TestCOAD(unittest.TestCase):
+    _multiprocess_can_split_=False
 
     def test_load(self):
-        self.assertEqual(self.coad.get('Performance.Gurobi.SOLVER'),'4')
+        self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
 
     def test_list(self):
-        self.coad.list('Performance')
-        # TODO: Assert
-        self.coad.list('Model')
-        # TODO: Assert
+        self.assertEqual(['MOSEK', 'CPLEX', 'Xpress-MP', 'Gurobi'], master_coad.list('Performance'))
 
+    def test_classes(self):
+        expected = [ "System", "Generator", "Fuel", "Fuel Contract", "Emission",
+                     "Abatement", "Storage", "Waterway", "Power Station",
+                     "Physical Contract", "Purchaser", "Reserve", "Market",
+                     "Region", "Zone", "Node", "Line", "MLF", "Transformer",
+                     "Phase Shifter", "Interface", "Contingency", "Company",
+                     "Financial Contract", "Transmission Right", "Cournot",
+                     "RSI", "Constraint", "Condition", "Data File", "Escalator",
+                     "Variable", "Timeslice", "Scenario", "Model", "Project",
+                     "Horizon", "Report", "LT Plan", "PASA", "MT Schedule",
+                     "ST Schedule", "Transmission", "Production", "Competition",
+                     "Stochastic", "Performance", "Diagnostic"]
+        self.assertEqual(expected, master_coad.keys())
 
-    def test_show(self):
-        self.coad.show('CPLEX')
-        # TODO: Assert
+    def test_objects(self):
+        expected = [u'MOSEK', u'CPLEX', u'Xpress-MP', u'Gurobi']
+        self.assertEqual(expected, master_coad['Performance'].keys())
 
     def test_get(self):
         identifier='Performance.Gurobi.SOLVER'
-        self.assertEqual(self.coad.get(identifier),'4')
-        self.assertEqual(self.coad['Performance']['Gurobi']['SOLVER'],'4')
+        self.assertEqual(master_coad.get_by_hierarchy(identifier),'4')
+        self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
 
     def test_set(self):
         # Existing attribute
         identifier='Performance.Gurobi.SOLVER'
-        self.assertEqual(self.coad.get(identifier),'4')
-        self.coad.set(identifier,'3')
-        self.assertEqual(self.coad.get(identifier),'3')
+        self.assertEqual(master_coad.get_by_hierarchy(identifier),'4')
+        master_coad.set(identifier,'3')
+        self.assertEqual(master_coad.get_by_hierarchy(identifier),'3')
         # New attribute
         identifier='Performance.CPLEX.MIP Relative Gap'
-        self.coad.set(identifier,'.002')
-        self.assertEqual('.002',self.coad.get(identifier))
-        self.coad.set(identifier,'.001')
-        self.assertEqual('.001',self.coad.get(identifier))
-        self.coad.save('coad/test/master_save_sqlite_mod.xml')
+        master_coad.set(identifier,'.002')
+        self.assertEqual('.002',master_coad.get_by_hierarchy(identifier))
+        master_coad.set(identifier,'.001')
+        self.assertEqual('.001',master_coad.get_by_hierarchy(identifier))
+        master_coad.save('coad/test/master_save_sqlite_mod.xml')
 
     def test_save(self):
-        self.coad.save('coad/test/master_save_sqlite.xml')
+        master_coad.save('coad/test/master_save_sqlite.xml')
         newcoad = COAD('coad/test/master_save_sqlite.xml')
-        self.assertEqual(newcoad.get('Performance.Gurobi.SOLVER'),'4')
+        self.assertEqual(newcoad['Performance']['Gurobi']['SOLVER'],'4')
+
+    def test_get_by_hierarchy(self):
+        identifier='Performance.Gurobi.SOLVER'
+        self.assertEqual(master_coad.get_by_hierarchy(identifier),'4')
+        self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
+
+    def test_get_by_object_id(self):
+        o = master_coad.get_by_object_id('9')
+        self.assertEqual('Performance', o.get_class().meta['name'])
+        self.assertEqual('Gurobi', o.meta['name'])
+
+    def test_get_collection_id(self):
+        '''Test get collection id
+        '''
+        self.assertEqual('196', master_coad['Model'].get_collection_id(master_coad['Horizon'].meta['class_id']))
+
 
 
 class TestObjectDict(unittest.TestCase):
@@ -108,6 +127,12 @@ class TestObjectDict(unittest.TestCase):
         #print(fresh_obj)
         self.assertNotIn('Enabled',fresh_obj.keys())
         #self.coad.save('master_noenable.xml')
+
+    def test_get_categories(self):
+        '''Test class and object category retrieval
+        '''
+        self.assertEqual("-", self.coad['Performance'].get_categories()[0]['name'])
+        self.assertEqual("-", self.coad['Performance']['Gurobi'].get_category())
 
 class TestObjectDictProperties(unittest.TestCase):
     '''Test properties using multiple input files
@@ -181,3 +206,14 @@ class TestObjectDictProperties(unittest.TestCase):
         g2 = saved_coad['Generator']['123-3']
         self.assertEqual(g2.get_property('Maintenance Rate'), new_props['Maintenance Rate'])
         self.assertEqual(g2.get_property('Heat Rate'), new_props['Heat Rate'])
+
+    def test_add_set_category(self):
+        '''Test category creation for class and set for object
+        '''
+        copy_coad = COAD('coad/master.xml')
+        copy_coad['Performance'].add_category("Test Category")
+        new_cat = copy_coad['Performance'].get_categories()[1]
+        self.assertEqual("Test Category", new_cat['name'])
+        self.assertEqual("1", new_cat['rank'])
+        copy_coad['Performance']['Gurobi'].set_category("Test Category")
+        self.assertEqual("Test Category", copy_coad['Performance']['Gurobi'].get_category())

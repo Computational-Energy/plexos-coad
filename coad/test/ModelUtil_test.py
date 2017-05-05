@@ -17,14 +17,14 @@ class TestModelUtil(unittest.TestCase):
     test_no_offset = 'M01 Cost Need 0603_008P_OLd000_007'
     self.assertIn(test_no_offset,self.coad['Model'].keys())
     self.assertIn(self.coad['Horizon'][test_no_offset],self.coad['Model'][test_no_offset].get_children())
-    self.assertEqual(43843.0,self.coad['Horizon'][test_no_offset]['Chrono Date From'])
-    self.assertEqual(2.0,self.coad['Horizon'][test_no_offset]['Chrono Step Count'])
+    self.assertEqual('43843.0',self.coad['Horizon'][test_no_offset]['Chrono Date From'])
+    self.assertEqual('2.0',self.coad['Horizon'][test_no_offset]['Chrono Step Count'])
     split_horizon(self.coad,'M01 Cost Need 0603',8,1,True)
     test_day_offset = 'M01 Cost Need 0603_008P_OLd001_006'
     self.assertIn(test_no_offset,self.coad['Model'].keys())
     self.assertIn(self.coad['Horizon'][test_day_offset],self.coad['Model'][test_day_offset].get_children())
-    self.assertEqual(43840.0,self.coad['Horizon'][test_day_offset]['Chrono Date From'])
-    self.assertEqual(3.0,self.coad['Horizon'][test_day_offset]['Chrono Step Count'])
+    self.assertEqual('43840.0',self.coad['Horizon'][test_day_offset]['Chrono Date From'])
+    self.assertEqual('3.0',self.coad['Horizon'][test_day_offset]['Chrono Step Count'])
     self.assertIn(self.coad['Model'][test_no_offset], self.coad['System']['WECC'].get_children('Model'))
     self.assertIn(self.coad['Horizon'][test_no_offset], self.coad['System']['WECC'].get_children('Horizon'))
 

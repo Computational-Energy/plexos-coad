@@ -50,8 +50,9 @@ class COAD(collections.MutableMapping):
             raise Exception('Invalid filename suffix')
         else:
             self.dbcon = plexos_database.load(filename, create_db_file=create_db_file)
+        # TODO: Make COAD stateless
         self.store = dict()
-        self.populate_store()
+        #self.populate_store()
         # Test for uid in data table, important for ordering of properties.
         # Occasionally missing from input files
         self.has_data_uid = False
@@ -78,15 +79,13 @@ class COAD(collections.MutableMapping):
         plexos_database.save(self.dbcon, filename)
 
     def list(self, classname):
-        ''' Print a list of all objects in class classname'''
+        ''' Return a list of all objects in class classname'''
         #with sql.connect(self.dbfilename) as con:
         cur = self.dbcon.cursor()
         list_select = ('SELECT name FROM object WHERE class_id IN '
                        '(SELECT class_id FROM class WHERE name=?)')
         cur.execute(list_select, [classname])
-        rows = cur.fetchall()
-        for row in rows:
-            print(row[0])
+        return [o[0] for o in cur.fetchall()]
 
     def show(self, objname):
         ''' Print a list of all attributes in an object
@@ -113,23 +112,41 @@ class COAD(collections.MutableMapping):
         for att in attributes:
             print('%s.%s.%s=%s'%tuple(att))
 
-    def get(self, identifier, default=None):
-        ''' Return the attribute value for an object
-            class_name.object_name.attribute_name=attribute value
-
-            attribute_data table has object_id, attribute_id, value
-            attribute has attribute_name,
-            object has object_id, class_id, object_name
-            class has class_id,class_name
-
-            TODO: Use default as inherited from MutableMapping
+    def get_by_object_id(self, object_id):
+        ''' Return an ObjectDict based on object_id
         '''
-        try:
-            (class_name, object_name, attribute_name) = identifier.split('.')
-        except:
-            raise Exception('''Invalid identifier, must take the form of:
-                class name.object name.attribute name''')
-        return self[class_name][object_name][attribute_name]
+        cur = self.dbcon.cursor()
+        sel = '''SELECT o.name AS oname, c.name AS cname FROM object o
+                 INNER JOIN class c ON c.class_id=o.class_id
+                 WHERE object_id=?'''
+        cur.execute(sel, object_id)
+        (oname, cname) = cur.fetchone()
+        return self[cname][oname]
+        #objcls = ClassDict(self, clsmeta)
+        #return ObjectDict(objcls, objmeta)
+
+    def get_by_hierarchy(self, identifier, default=None):
+        ''' Return the ClassDict, ObjectDict or attribute value for an object
+            class_name.object_name.attribute_name = attribute value
+            or
+            class_name|object_name|attribute_name = attribute value
+            if one of the names has a . in it
+        '''
+        hier = identifier.split('.')
+        if hier[0] not in self:
+            hier = identifier.split('|')
+        if hier[0] not in self:
+            raise Exception("No such class '%s'"%hier[0])
+        retobj = self[hier[0]]
+        if len(hier) > 1:
+            if hier[1] not in retobj:
+                raise Exception("No such object '%s' in %s"%(hier[1], hier[0]))
+            retobj = retobj[hier[1]]
+            if len(hier) > 2:
+                if hier[2] not in retobj:
+                    raise Exception("No such attribute '%s' in %s"%(hier[2], hier[1]))
+                retobj = retobj[hier[2]]
+        return retobj
 
     def set(self, identifier, value):
         ''' Sets the attribute value for an object
@@ -233,16 +250,33 @@ class COAD(collections.MutableMapping):
         raise Exception('Operation not supported yet')
 
     def __getitem__(self, key):
-        return self.store[key]
+        cur = self.dbcon.cursor()
+        cur.execute("SELECT * FROM class WHERE name=?", [key])
+        row = cur.fetchone()
+        if row is None:
+            raise Exception("No such class %s"%key)
+        c_meta = dict(zip([d[0] for d in cur.description], row))
+        return ClassDict(self, c_meta)
+        #for row in cur.fetchall():
+        #    c_meta = dict(zip([d[0] for d in cur.description], row))
+        #    self.store[c_meta['name']] = ClassDict(self, c_meta)
+        #return self.store[key]
 
     def __delitem__(self, key):
         raise Exception('Operation not supported yet')
         #del self.store[key]
 
     def __iter__(self):
-        return iter(self.store)
+        cur = self.dbcon.cursor()
+        cur.execute("SELECT name FROM class ORDER BY class_id")
+        return iter([n[0] for n in cur.fetchall()])
+        #return iter(self.store)
 
     def __len__(self):
+        cur = self.dbcon.cursor()
+        cur.execute("SELECT count(*) FROM class")
+        return cur.fetchone()[0]
+        #return iter([n[0] for n in cur.fetchall()])
         return len(self.store)
 
 class ClassDict(collections.MutableMapping):
@@ -253,27 +287,34 @@ class ClassDict(collections.MutableMapping):
         Uses Abstract Base Classes to extend a dictionary
     '''
     def __init__(self, coad, meta):
+        # TODO Remove store and have it be a better ORM
         self.store = dict()
         self.coad = coad
         self.meta = meta
-        cur = self.coad.dbcon.cursor()
-        cur.execute("SELECT * FROM object WHERE class_id=?", [self.meta['class_id']])
-        for row in cur.fetchall():
-            obj = dict(zip([d[0] for d in cur.description], row))
-            if obj['name'] in self.store:
-                msg = 'Duplicate name of object %s in class %s'
-                raise Exception(msg%(obj['name'], self.meta['name']))
-            self.store[obj['name']] = ObjectDict(self.coad, obj)
+        #cur = self.coad.dbcon.cursor()
+        #cur.execute("SELECT * FROM object WHERE class_id=?", [self.meta['class_id']])
+        #for row in cur.fetchall():
+        #    obj = dict(zip([d[0] for d in cur.description], row))
+        #    if obj['name'] in self.store:
+        #        msg = 'Duplicate name of object %s in class %s'
+        #        raise Exception(msg%(obj['name'], self.meta['name']))
+        #    self.store[obj['name']] = ObjectDict(self.coad, obj)
 
     def __setitem__(self, key, value):
         ''' Allow setting keys to an objectdict '''
+        raise Exception('Opertation not supported yet')
         if not isinstance(value, ObjectDict):
             raise Exception('Unable to set Class child to anything but Object')
         # TODO: Some kind of validation in databaseland
         self.store[key] = value
 
     def __getitem__(self, key):
-        return self.store[key]
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT * FROM object WHERE class_id=? AND name=?", [self.meta['class_id'], key])
+        objrow = cur.fetchone()
+        obj = dict(zip([d[0] for d in cur.description], objrow))
+        return ObjectDict(self.coad, obj)
+        #return self.store[key]
 
     def __delitem__(self, key):
         # To remove this object:
@@ -287,10 +328,17 @@ class ClassDict(collections.MutableMapping):
         #del self.store[key]
 
     def __iter__(self):
-        return iter(self.store)
+        # TODO: Just keys or keys and values?
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT name FROM object WHERE class_id=?", [self.meta['class_id']])
+        return iter([row[0] for row in cur.fetchall()])
+        #return iter(self.store)
 
     def __len__(self):
-        return len(self.store)
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT count(*) FROM object WHERE class_id=?", [self.meta['class_id']])
+        return cur.fetchone()[0]
+        #return len(self.store)
 
     def diff(self, other_class):
         ''' Return a list of difference between two ClassDict objects
@@ -314,6 +362,55 @@ class ClassDict(collections.MutableMapping):
                 diff_msg.append("Difference in ObjectDict %s"%key)
                 diff_msg += obj_diff
         return diff_msg
+
+    def get_collection_id(self, child_class_id):
+        ''' Return the collection id that represents the relationship between
+        this object's class and a child's class
+            Collections appear to be another view of membership, maybe a list of
+        allowed memberships
+        '''
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT collection_id FROM collection WHERE parent_class_id=? AND child_class_id=?", [self.meta['class_id'], child_class_id])
+        #collection = self.coad.db['collection'].find_one({'parent_class_id':self.meta['class_id'], 'child_class_id':child_class_id}, {'collection_id':1})
+        collection = cur.fetchone()
+        if collection is None:
+            msg = 'Unable to find collection for the parent %s and child %s'
+            raise Exception(msg%(self.meta['class_id'], child_class_id))
+        return str(collection[0])
+
+    def get_categories(self):
+        ''' Return a list of category dicts available for objects of this class, ordered
+        by rank.
+        '''
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT * FROM category WHERE class_id=?", [self.meta['class_id']])
+        unsorted_cats = []
+        for row in cur.fetchall():
+            cat = dict(zip([d[0] for d in cur.description], row))
+            unsorted_cats.append(cat)
+        categories = sorted(unsorted_cats, key=lambda c: int(c['rank']))
+        return categories
+
+    def add_category(self, name):
+        ''' Add a new category to this class, not allowing duplicated names in class
+        '''
+        # Get existing categories for class
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT * FROM category WHERE class_id=?", [self.meta['class_id']])
+        lastrank = -1
+        for row in cur.fetchall():
+            cat = dict(zip([d[0] for d in cur.description], row))
+            lastrank = max(int(cat['rank']), lastrank)
+            if cat['name'] == 'name':
+                raise Exception("Category %s already exists in %s"%(name, self.meta['name']))
+        cmd = "INSERT INTO category (name,rank,class_id) VALUES (?,?,?)"
+        vls = [name, str(lastrank+1), self.meta['class_id']]
+        print "insert "+str(vls)
+        cur.execute(cmd, vls)
+        self.coad.dbcon.commit()
+
+    # TODO: Any need for remove category?  Would have to change objects that use
+    # the deleted category to the default
 
 class ObjectDict(collections.MutableMapping):
     ''' Overwrites the setitem method to allow updates to data and dict
@@ -406,22 +503,24 @@ class ObjectDict(collections.MutableMapping):
                 cols.append(k)
                 if k == 'name':
                     if newname is None:
-                        val = self.meta['name'] + '-' + str(uuid.uuid4())
-                    else:
-                        val = newname
+                        newname = self.meta['name'] + '-' + str(uuid.uuid4())
+                        #val = self.meta['name'] + '-' + str(uuid.uuid4())
+                    #else:
+                    val = newname
                 vals.append(val)
         cur = self.coad.dbcon.cursor()
         fill = ','.join('?'*len(cols))
         cmd = "INSERT INTO object (%s) VALUES (%s)"%(','.join(["'%s'"%c for c in cols]), fill)
         cur.execute(cmd, vals)
         self.coad.dbcon.commit()
-        new_obj_meta = dict(zip(cols, vals))
-        new_obj_meta['object_id'] = cur.lastrowid
-        new_obj_dict = ObjectDict(self.coad, new_obj_meta)
+        #new_obj_meta = dict(zip(cols, vals))
+        #new_obj_meta['object_id'] = cur.lastrowid
+        #new_obj_dict = ObjectDict(self.coad, new_obj_meta)
+        new_obj_dict = self.get_class()[newname]
         for (k, val) in self.store.items():
             new_obj_dict[k] = val
         # Add this objectdict to classdict
-        new_obj_dict.get_class()[new_obj_meta['name']] = new_obj_dict
+        #new_obj_dict.get_class()[new_obj_meta['name']] = new_obj_dict
         # Create new the membership information
         # TODO: Is it possible to have orphans by not checking child_object_id?
         cur.execute("SELECT * FROM membership WHERE parent_object_id=?",
@@ -430,7 +529,7 @@ class ObjectDict(collections.MutableMapping):
         parent_object_id_idx = cols.index('parent_object_id')
         for row in cur.fetchall():
             newrow = list(row)
-            newrow[parent_object_id_idx] = new_obj_meta['object_id']
+            newrow[parent_object_id_idx] = new_obj_dict.meta['object_id']
             cmd = "INSERT INTO membership (%s) VALUES (%s)"
             vls = (','.join(["'"+c+"'" for c in cols[1:]]), ','.join(['?' for d in newrow[1:]]))
             cur.execute(cmd%vls, newrow[1:])
@@ -491,6 +590,26 @@ class ObjectDict(collections.MutableMapping):
         for row in cur.fetchall():
             children.append(self.coad[row[0]][row[1]])
         return children
+
+    def get_category(self):
+        ''' Return the name of this object's category
+        '''
+        cur = self.coad.dbcon.cursor()
+        cmd = 'SELECT name FROM category WHERE category_id=?'
+        cur.execute(cmd, [self.meta['category_id']])
+        return cur.fetchone()[0]
+
+    def set_category(self, name):
+        ''' Set this object's category to name
+        '''
+        available_cats = self.get_class().get_categories()
+        for cat in available_cats:
+            if cat['name'] == name:
+                cur = self.coad.dbcon.cursor()
+                cur.execute("""UPDATE object SET category_id=? WHERE object_id=?""", [cat['category_id'], self.meta['object_id']])
+                self.coad.dbcon.commit()
+                return
+        raise Exception("No such category %s for class %s"%(name, self.get_class().meta['name']))
 
     def get_class(self):
         ''' Return the ClassDict that contains this object
