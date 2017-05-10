@@ -186,10 +186,12 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
                   ('attribute_data', 'object_id'),
                   ('attribute_data', 'attribute_id'),
                   ('data', 'membership_id'),
+                  ('data', 'property_id'),
                   ('data', 'uid'),
                   ('membership', 'parent_object_id'),
                   ('membership', 'child_object_id'),
-                  ('object', 'object_id')]
+                  ('object', 'object_id'),
+                  ('property', 'property_id')]
     for (tablename, colname) in index_list:
         if tablename in tables and colname in tables[tablename]:
             dbcon.execute("CREATE INDEX %s_%s_idx ON %s (%s) "%(tablename, colname, tablename, colname))

@@ -70,6 +70,26 @@ class TestCOAD(unittest.TestCase):
         '''
         self.assertEqual('196', master_coad['Model'].get_collection_id(master_coad['Horizon'].meta['class_id']))
 
+    def test_class_valid_properties(self):
+        '''Test valid properties for a class
+        '''
+        expected = {"Production Rate":"816",
+            "Removal Rate":"817",
+            "Removal Cost":"818",
+            "Production at Start":"819",
+            "Shadow Price Scalar":"820",
+            "Price Scalar":"821",
+            "Allocation":"822",
+            "Allocation Day":"823",
+            "Allocation Week":"824",
+            "Allocation Month":"825",
+            "Allocation Year":"826"
+            }
+        actual = master_coad['Generator'].valid_properties_by_name['Emission']
+        for (k,v) in expected.iteritems():
+            self.assertIn(k, actual)
+            self.assertEqual(v, actual[k])
+        #self.assertEqual(expected, master_coad['Generator'].valid_properties_by_name['Emission'])
 
 
 class TestObjectDict(unittest.TestCase):
@@ -100,6 +120,11 @@ class TestObjectDict(unittest.TestCase):
         self.assertIn('Test Base Model',self.coad['Model'])
         should_contain = [self.coad['Horizon']['Base'],self.coad['Report']['Base'],self.coad['ST Schedule']['Base']]
         self.assertItemsEqual(should_contain,self.coad['Model']['Test Base Model'].get_children())
+
+    def test_get_parents(self):
+        should_contain = [master_coad['System']['System'],master_coad['Model']['Base']]
+        self.assertItemsEqual(should_contain,master_coad['Horizon']['Base'].get_parents())
+        self.assertItemsEqual([master_coad['Model']['Base']],master_coad['Horizon']['Base'].get_parents('Model'))
 
     def test_get_children(self):
         should_contain = [self.coad['Horizon']['Base'],self.coad['Report']['Base'],self.coad['ST Schedule']['Base']]
@@ -137,6 +162,40 @@ class TestObjectDict(unittest.TestCase):
 class TestObjectDictProperties(unittest.TestCase):
     '''Test properties using multiple input files
     '''
+    def test_get_properties(self):
+        '''Test get properties
+        '''
+        filename = 'coad/test/118-Bus.xml'
+        coad = COAD(filename)
+        # Get properties
+        line = coad['Line']['126']
+        props = {'System.System':{'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}}
+        self.assertEqual(line.get_properties(), props)
+        # Get property
+        self.assertEqual(line.get_property('Max Flow', 'System.System'), '9900')
+        # Get properties
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        g = coad['Generator']['101-1']
+        props = {'System.System':{'Mean Time to Repair': '50',
+                     'Load Point': ['20', '19.8', '16', '15.8'],
+                     'Heat Rate': ['15063', '14499', '14500', '15000'],
+                     'Min Up Time': '1',
+                     'Max Ramp Up': '3',
+                     'Min Down Time': '1',
+                     'Min Stable Level': '15.8',
+                     'Units': '1',
+                     'Start Cost Time': ['0', '1'],
+                     'Maintenance Frequency': '2',
+                     'Maintenance Rate': '3.84',
+                     'Max Capacity': '20',
+                     'Forced Outage Rate': '10'}}
+        self.assertEqual(g.get_properties(), props)
+        # Get property
+        self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
+        # Tagged properties
+        self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
+
     def test_single_properties(self):
         '''Tests related to properties with a single value
         '''
@@ -145,7 +204,7 @@ class TestObjectDictProperties(unittest.TestCase):
         # Get properties
         line = coad['Line']['126']
         props = {'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}
-        self.assertEqual(line.get_properties(), props)
+        self.assertEqual(line.get_properties()['System.System'], props)
         # Get property
         self.assertEqual(line.get_property('Max Flow'), '9900')
         # Set property
@@ -160,9 +219,9 @@ class TestObjectDictProperties(unittest.TestCase):
         solar = COAD('coad/test/118-Bus_props_test.xml')
         props['Min Flow']='123456'
         line = solar['Line']['126']
-        self.assertEqual(line.get_properties(), props)
+        self.assertEqual(line.get_properties()['System.System'], props)
         line_a = coad['Line']['027']
-        self.assertEqual(line_a.get_properties(), new_props)
+        self.assertEqual(line_a.get_properties()['System.System'], new_props)
 
     def test_multi_properties(self):
         '''Tests related to properties with a list of values
@@ -184,12 +243,13 @@ class TestObjectDictProperties(unittest.TestCase):
                  'Maintenance Rate': '3.84',
                  'Max Capacity': '20',
                  'Forced Outage Rate': '10'}
-        self.assertEqual(g.get_properties(), props)
+        self.assertEqual(g.get_properties()['System.System'], props)
         # Get property
         self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
+        '''TODO: Support setting multiple data
         # Set property
-        g.set_property('Load Point', ['a', 'b', 'c', 'd'])
-        self.assertEqual(g.get_property('Load Point'), ['a', 'b', 'c', 'd'])
+        #g.set_property('Load Point', ['a', 'b', 'c', 'd'])
+        #self.assertEqual(g.get_property('Load Point'), ['a', 'b', 'c', 'd'])
         # Set property with wrong length
         with self.assertRaises(Exception):
             g.set_property('Load Point', ['a', 'b', 'c'])
@@ -202,10 +262,32 @@ class TestObjectDictProperties(unittest.TestCase):
         saved_coad = COAD('coad/test/RTS-96_props_test.xml')
         props['Load Point'] = ['a', 'b', 'c', 'd']
         g = saved_coad['Generator']['101-1']
-        self.assertEqual(g.get_properties(), props)
+        self.assertEqual(g.get_properties()['System.System'], props)
         g2 = saved_coad['Generator']['123-3']
         self.assertEqual(g2.get_property('Maintenance Rate'), new_props['Maintenance Rate'])
         self.assertEqual(g2.get_property('Heat Rate'), new_props['Heat Rate'])
+        '''
+
+    def test_modify_single_tagged_properties(self):
+        '''Tests related to modifying tagged properties with a single value
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
+        coad['Generator']['118-1'].set_property('Commit', 'totally_committed', 'Scenario.RT_UC')
+        # Test that dynamic flag is not set for Unit Commitment Optimality
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
+        self.assertRaises(Exception, coad['Generator']['118-1'].set_property, 'Unit Commitment Optimality', 'I hate input masks', 'Scenario.RT_UC')
+        # Make sure invalid assignment does not trigger is_dynamic=true
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
+        # This tag isn't set at all
+        coad['Generator']['118-1'].set_property('Unit Commitment Optimality', 'Rounded Relaxation', 'Scenario.RT_UC')
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'true')
+        coad.save('coad/test/RTS-96_props_test.xml')
+        saved_coad = COAD('coad/test/RTS-96_props_test.xml')
+        expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'Rounded Relaxation'}
+        self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'], expected)
+
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object

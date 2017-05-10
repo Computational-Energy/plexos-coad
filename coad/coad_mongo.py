@@ -550,7 +550,7 @@ class ObjectDict(collections.MutableMapping):
         '''Return a dict of all properties set for this object along with any
         properties tagged to another object.
 
-        TODO: Tagged properties apply only to tag object
+        Tagged properties apply only to tag object
 
         Returns:
             dict of class/object_hierarchy=dict of property_name=value
@@ -644,8 +644,6 @@ class ObjectDict(collections.MutableMapping):
     def set_property(self, name, value, tag='System.System'):
         '''Set the value of a property by name.
         Limited to modifying existing values.  Will not add new data.
-
-        Returns: True on success, False otherwise
         '''
         if isinstance(value, list):
             raise Exception("Overwriting list of data not supported yet")
