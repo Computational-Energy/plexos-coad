@@ -539,6 +539,10 @@ class ObjectDict(collections.MutableMapping):
         cols = []
         vals = []
         for (k, val) in self.meta.items():
+            # GUID is new in version 7, and must be unique across all objects
+            if k == 'GUID':
+                cols.append(k)
+                vals.append(str(uuid.uuid4()))
             if k != 'object_id':
                 cols.append(k)
                 if k == 'name':

@@ -159,6 +159,26 @@ class TestObjectDict(unittest.TestCase):
         self.assertEqual("-", self.coad['Performance'].get_categories()[0]['name'])
         self.assertEqual("-", self.coad['Performance']['Gurobi'].get_category())
 
+    def test_7_400_2(self):
+        '''Test changes related to the 7.400.2 version of master.xml
+        '''
+        coad=COAD('coad/master_7.400.2.xml')
+        oldobj = coad['Horizon']['Base']
+        newobj = oldobj.copy('New Horizon')
+        self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
+        for (k,v) in oldobj.items():
+            self.assertEqual(v,newobj[k])
+        self.assertEqual(['Base', 'New Horizon'], coad.list('Horizon'))
+        self.assertNotEqual(coad['Horizon']['Base'].meta['GUID'], coad['Horizon']['New Horizon'].meta['GUID'])
+        newobj = oldobj.copy()
+        self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
+        oldobj = coad['Model']['Base']
+        newobj = oldobj.copy('Test Base Model')
+        self.assertIn('Test Base Model',coad['Model'])
+        should_contain = [coad['Horizon']['Base'],coad['Report']['Base'],coad['ST Schedule']['Base']]
+        self.assertItemsEqual(should_contain,coad['Model']['Test Base Model'].get_children())
+
+
 class TestObjectDictProperties(unittest.TestCase):
     '''Test properties using multiple input files
     '''
