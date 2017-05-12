@@ -1057,7 +1057,7 @@ class ObjectDict(collections.MutableMapping):
         if len(children):
             print(spacing+'    Children (%s):'%len(children))
             for k in children:
-                self.clsdict.coad.get_by_hierarchy(k).dump(recursion_level+1)
+                self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
         else:
             print(spacing+'    No children')
 
