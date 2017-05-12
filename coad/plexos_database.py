@@ -249,8 +249,8 @@ def save(dbcon, filename):
                     # Uncommenting the following will ignore subelements with no values
                     # Sometimes missing subelements with no values were crashing plexos.
                     # See issue #54
-                    #if val is None:
-                    #  continue
+                    if val is None:
+                      continue
                     attr_ele = etree.SubElement(ele, sube)
                     if isinstance(val, int):
                         val = str(val)
