@@ -536,6 +536,9 @@ class ObjectDict(collections.MutableMapping):
             attribute_data entries as well.
             # TODO: Enforce unique naming
         '''
+        # Verify there is no existing object of this class with this name
+        if newname in self.get_class().keys():
+            raise Exception("Duplicate name '%s' for same class"%newname)
         cols = []
         vals = []
         for (k, val) in self.meta.items():

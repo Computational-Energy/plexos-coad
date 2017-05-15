@@ -121,6 +121,7 @@ class TestObjectDict(unittest.TestCase):
         should_contain = [self.coad['Horizon']['Base'],self.coad['Report']['Base'],self.coad['ST Schedule']['Base']]
         self.assertItemsEqual(should_contain,self.coad['Model']['Test Base Model'].get_children())
         self.assertItemsEqual([self.coad['System']['System']], self.coad['Model']['Test Base Model'].get_parents())
+        self.assertRaises(Exception, self.coad['Model']['Base'].copy, 'Test Base Model')
 
     def test_get_parents(self):
         should_contain = [master_coad['System']['System'],master_coad['Model']['Base']]
