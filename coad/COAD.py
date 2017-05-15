@@ -577,6 +577,17 @@ class ObjectDict(collections.MutableMapping):
             cmd = "INSERT INTO membership (%s) VALUES (%s)"
             vls = (','.join(["'"+c+"'" for c in cols[1:]]), ','.join(['?' for d in newrow[1:]]))
             cur.execute(cmd%vls, newrow[1:])
+        # Copy memberships where this is the child
+        cur.execute("SELECT * FROM membership WHERE child_object_id=?",
+                    [self.meta['object_id']])
+        cols = [d[0] for d in cur.description]
+        child_object_id_idx = cols.index('child_object_id')
+        for row in cur.fetchall():
+            newrow = list(row)
+            newrow[child_object_id_idx] = new_obj_dict.meta['object_id']
+            cmd = "INSERT INTO membership (%s) VALUES (%s)"
+            vls = (','.join(["'"+c+"'" for c in cols[1:]]), ','.join(['?' for d in newrow[1:]]))
+            cur.execute(cmd%vls, newrow[1:])
         self.coad.dbcon.commit()
         return new_obj_dict
 

@@ -120,6 +120,7 @@ class TestObjectDict(unittest.TestCase):
         self.assertIn('Test Base Model',self.coad['Model'])
         should_contain = [self.coad['Horizon']['Base'],self.coad['Report']['Base'],self.coad['ST Schedule']['Base']]
         self.assertItemsEqual(should_contain,self.coad['Model']['Test Base Model'].get_children())
+        self.assertItemsEqual([self.coad['System']['System']], self.coad['Model']['Test Base Model'].get_parents())
 
     def test_get_parents(self):
         should_contain = [master_coad['System']['System'],master_coad['Model']['Base']]
@@ -163,6 +164,12 @@ class TestObjectDict(unittest.TestCase):
         '''Test changes related to the 7.400.2 version of master.xml
         '''
         coad=COAD('coad/master_7.400.2.xml')
+        # Test model first, as the horizons will attach themselves to the copied base model
+        oldobj = coad['Model']['Base']
+        newobj = oldobj.copy('Test Base Model')
+        self.assertIn('Test Base Model', coad['Model'])
+        should_contain = [coad['Horizon']['Base'],coad['Report']['Base'],coad['ST Schedule']['Base']]
+        self.assertItemsEqual(should_contain, coad['Model']['Test Base Model'].get_children())
         oldobj = coad['Horizon']['Base']
         newobj = oldobj.copy('New Horizon')
         self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
@@ -172,11 +179,6 @@ class TestObjectDict(unittest.TestCase):
         self.assertNotEqual(coad['Horizon']['Base'].meta['GUID'], coad['Horizon']['New Horizon'].meta['GUID'])
         newobj = oldobj.copy()
         self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
-        oldobj = coad['Model']['Base']
-        newobj = oldobj.copy('Test Base Model')
-        self.assertIn('Test Base Model',coad['Model'])
-        should_contain = [coad['Horizon']['Base'],coad['Report']['Base'],coad['ST Schedule']['Base']]
-        self.assertItemsEqual(should_contain,coad['Model']['Test Base Model'].get_children())
 
 
 class TestObjectDictProperties(unittest.TestCase):
