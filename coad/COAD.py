@@ -51,24 +51,18 @@ class COAD(collections.MutableMapping):
             raise Exception('Invalid filename suffix')
         else:
             self.dbcon = plexos_database.load(filename, create_db_file=create_db_file)
-        #self.dbcon.text_factory = str
-        # TODO: Make COAD stateless
-        #self.store = dict()
-        #self.populate_store()
+        # Have list of tables on hand for some that may not exist
+        cur = self.dbcon.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        self.table_list = [x[0] for x in cur.fetchall()]
         # Test for uid in data table, important for ordering of properties.
         # Occasionally missing from input files
         self.has_data_uid = False
-        cur = self.dbcon.cursor()
         cur.execute('PRAGMA table_info(data)')
         for row in cur.fetchall():
             if 'uid' == row[1]:
                 self.has_data_uid = True
                 break
-        # Sometimes there is no tag table
-        self.has_tag_table = True
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tag'")
-        if len(cur.fetchall()) == 0:
-            self.has_tag_table = False
 
     def populate_store(self):
         ''' Populate this map with class names and pointers to their classDict
@@ -725,8 +719,7 @@ class ObjectDict(collections.MutableMapping):
         cur = self.coad.dbcon.cursor()
         props = {}
         # Sometimes there is no data table
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data'")
-        if len(cur.fetchall()) == 0:
+        if 'data' not in self.coad.table_list:
             return props
         cmd = "SELECT parent_object_id, membership_id FROM membership WHERE child_object_id=?"
         cur.execute(cmd, [self.meta['object_id']])
@@ -744,7 +737,7 @@ class ObjectDict(collections.MutableMapping):
             #data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
             for d in data:
                 tag_hier = parent.hierarchy
-                if self.coad.has_tag_table:
+                if 'tag' in self.coad.table_list:
                     # Can parents and tags coexist? Yes!  It appears the data_id
                     # shown in the tag is the overwritten value of the default.
                     # Check for tag, which is modified data for a specific data_id
@@ -811,6 +804,9 @@ class ObjectDict(collections.MutableMapping):
     def get_property(self, name, tag='System.System'):
         '''Return the value of a property by name
         '''
+        # Sometimes there is no data table
+        if 'data' not in self.coad.table_list:
+            return None
         if isinstance(tag, ObjectDict):
             tag_obj = tag
         else:
@@ -1032,6 +1028,40 @@ class ObjectDict(collections.MutableMapping):
         '''
         for name, value in new_dict.iteritems():
             self.set_property(name, value)
+
+    def get_text(self):
+        '''Return a dict of all text set for this object along with any
+        text tagged to another object.
+
+        Returns:
+            dict of class/object_hierarchy=dict of text property name=value
+        '''
+        cur = self.coad.dbcon.cursor()
+        text = {}
+        # Sometimes there is no data or text table
+        if 'data' not in self.coad.table_list or 'text' not in self.coad.table_list:
+            return text
+        cmd = """SELECT m.parent_object_id, d.property_id, t.value, t.data_id FROM membership m
+                 INNER JOIN data d ON m.membership_id=d.membership_id
+                 INNER JOIN text t ON t.data_id=d.data_id
+                 WHERE child_object_id=?"""
+        cur.execute(cmd, [self.meta['object_id']])
+        for (parent_object_id, property_id, value, data_id) in list(cur.fetchall()):
+            parent = self.coad.get_by_object_id(parent_object_id)
+            name = self.get_class().valid_properties[parent.get_class().meta['name']][str(property_id)]['name']
+            #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
+            if parent.hierarchy not in text:
+                text[parent.hierarchy] = {}
+            text[parent.hierarchy][name] = value
+            # Worry about tags in the property part
+            # Check for tags
+            #if 'tag' in self.coad.table_list:
+            #    cmd = "SELECT object_id FROM tag WHERE data_id=?"
+            #    #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
+            #    cur.execute(cmd, [data_id])
+            #    for (tag_obj_id,) in cur.fetchall():
+            #        print("  tag: %s"%self.coad.get_by_object_id(tag_obj_id).hierarchy)
+        return text
 
     def dump(self, recursion_level=0):
         ''' Print to stdout as much information as possible about object to facilitate debugging

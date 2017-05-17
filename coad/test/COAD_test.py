@@ -311,6 +311,14 @@ class TestObjectDictProperties(unittest.TestCase):
         expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'Rounded Relaxation'}
         self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'], expected)
 
+    def test_get_text(self):
+        '''Get text values for Data File objects
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        expected = {u'System.System': {u'Filename': u'\\Model a_DA_Base Solution\\interval\\ST Generator(*).Units Generating.csv'}}
+        result = coad['Data File']['4HA_UC'].get_text()
+        self.assertEqual(result, expected)
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
