@@ -992,34 +992,6 @@ class ObjectDict(collections.MutableMapping):
                 raise Exception('Overwriting list of data not supported yet')
         return
 
-
-
-        #TODO: Handle arrays of values
-        cur = self.coad.dbcon.cursor()
-        cmd = """SELECT d.data_id FROM data d
-            INNER JOIN property p ON p.property_id = d.property_id
-            WHERE p.name=?
-            AND membership_id IN
-            (SELECT membership_id FROM membership WHERE child_object_id=?)"""
-        if self.coad.has_data_uid:
-            cmd += " ORDER BY d.uid"
-        cur.execute(cmd, [name, self.meta['object_id']])
-        match_data = cur.fetchall()
-        if isinstance(value, list):
-            if len(value) != len(match_data):
-                msg = 'Property "%s" expects %s values, %s provided'
-                raise Exception(msg%(name, len(match_data), len(value)))
-            cur.executemany('UPDATE data SET value=? WHERE data_id=?',
-                            zip(value, [x[0] for x in match_data]))
-        elif len(match_data) != 1:
-            raise Exception('Unable to find single property to modify for %s'%name)
-        else:
-            data_id = match_data[0][0]
-            cur.execute("""UPDATE data SET value=? WHERE data_id=?""", [value, data_id])
-            if cur.rowcount != 1:
-                raise Exception('Unable to set property %s, %s rows affected'%(name, cur.rowcount))
-        self.coad.dbcon.commit()
-
     def set_properties(self, new_dict):
         '''Set all the propery values present in dict
 
@@ -1049,19 +1021,63 @@ class ObjectDict(collections.MutableMapping):
         for (parent_object_id, property_id, value, data_id) in list(cur.fetchall()):
             parent = self.coad.get_by_object_id(parent_object_id)
             name = self.get_class().valid_properties[parent.get_class().meta['name']][str(property_id)]['name']
-            #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
-            if parent.hierarchy not in text:
-                text[parent.hierarchy] = {}
-            text[parent.hierarchy][name] = value
-            # Worry about tags in the property part
             # Check for tags
-            #if 'tag' in self.coad.table_list:
-            #    cmd = "SELECT object_id FROM tag WHERE data_id=?"
-            #    #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
-            #    cur.execute(cmd, [data_id])
-            #    for (tag_obj_id,) in cur.fetchall():
-            #        print("  tag: %s"%self.coad.get_by_object_id(tag_obj_id).hierarchy)
+            tag_set = False
+            if 'tag' in self.coad.table_list:
+                cmd = "SELECT object_id FROM tag WHERE data_id=?"
+                #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
+                cur.execute(cmd, [data_id])
+                for (tag_obj_id,) in cur.fetchall():
+                    #print("  tag: %s"%self.coad.get_by_object_id(tag_obj_id).hierarchy)
+                    tag_obj_hier = self.coad.get_by_object_id(tag_obj_id).hierarchy
+                    if tag_obj_hier not in text:
+                        text[tag_obj_hier] = {}
+                    text[tag_obj_hier][name] = value
+                    tag_set = True
+            if not tag_set:
+                #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
+                if parent.hierarchy not in text:
+                    text[parent.hierarchy] = {}
+                text[parent.hierarchy][name] = value
         return text
+
+    def set_text(self, name, value, tag='System.System'):
+        '''Set the value of a text item by name
+            Will add new data if no existing text matches the tag.
+            Will NOT add new membership if one doesn't exist.
+            Assumes System.System requires a property set with the default value.
+        '''
+        cur = self.coad.dbcon.cursor()
+        cmd = """SELECT m.parent_object_id, d.property_id, t.value, t.data_id FROM membership m
+                 INNER JOIN data d ON m.membership_id=d.membership_id
+                 INNER JOIN text t ON t.data_id=d.data_id
+                 INNER JOIN property p ON d.property_id=p.property_id
+                 WHERE m.child_object_id=? AND p.name=?"""
+        cur.execute(cmd, [self.meta['object_id'], name])
+        for (parent_object_id, property_id, cur_value, data_id) in list(cur.fetchall()):
+            #print("set_text: poid:%s pid:%s, cv:%s, did:%s"%(parent_object_id, property_id, cur_value, data_id))
+            # Check if there is already a text for this, update it
+            if cur_value:
+                cmd = "UPDATE text SET value=? WHERE data_id=?"
+                cur.execute(cmd, [value, data_id])
+            elif property_id:
+                pass
+                # Check if there is already a property for this
+
+                # Set property data to default value
+
+                # Set text to new value
+            if self.coad.get_by_object_id(parent_object_id).hierarchy != tag:
+                tag_obj = self.coad.get_by_hierarchy(tag)
+                tag_obj_id = tag_obj.meta['object_id']
+                # Check for existing tag on this data object and tag
+                cmd = "SELECT count(*) FROM tag WHERE data_id=? AND object_id=?"
+                cur.execute(cmd, [data_id, tag_obj_id])
+                if cur.fetchone()[0] == 0:
+                    # Add tag here
+                    pass
+        self.coad.dbcon.commit()
+
 
     def dump(self, recursion_level=0):
         ''' Print to stdout as much information as possible about object to facilitate debugging

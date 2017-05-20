@@ -316,9 +316,21 @@ class TestObjectDictProperties(unittest.TestCase):
         '''
         filename = 'coad/test/RTS-96.xml'
         coad = COAD(filename)
-        expected = {u'System.System': {u'Filename': u'\\Model a_DA_Base Solution\\interval\\ST Generator(*).Units Generating.csv'}}
+        expected = {u'Scenario.4HA_UC': {u'Filename': u'\\Model a_DA_Base Solution\\interval\\ST Generator(*).Units Generating.csv'}}
         result = coad['Data File']['4HA_UC'].get_text()
         self.assertEqual(result, expected)
+
+    def test_set_text(self):
+        '''Set text values for Data File objects
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        # Change an existing data file
+        expected = {u'Scenario.4HA_UC': {u'Filename': u'test_filename'}}
+        coad['Data File']['4HA_UC'].set_text('Filename', 'test_filename')
+        result = coad['Data File']['4HA_UC'].get_text()
+        self.assertEqual(result, expected)
+        # Create a new data file text
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
