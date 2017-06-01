@@ -1046,38 +1046,56 @@ class ObjectDict(collections.MutableMapping):
             Will add new data if no existing text matches the tag.
             Will NOT add new membership if one doesn't exist.
             Assumes System.System requires a property set with the default value.
+
+            Allows setting filenames for certain properties such as Data File
         '''
         cur = self.coad.dbcon.cursor()
-        cmd = """SELECT m.parent_object_id, d.property_id, t.value, t.data_id FROM membership m
-                 INNER JOIN data d ON m.membership_id=d.membership_id
-                 INNER JOIN text t ON t.data_id=d.data_id
-                 INNER JOIN property p ON d.property_id=p.property_id
+        # Get all collections that match the property name
+        cmd ="""SELECT m.parent_object_id, m.membership_id, p.property_id FROM membership m
+                 INNER JOIN collection c ON c.collection_id = m.collection_id
+                 INNER JOIN property p ON c.collection_id=p.collection_id
                  WHERE m.child_object_id=? AND p.name=?"""
         cur.execute(cmd, [self.meta['object_id'], name])
-        for (parent_object_id, property_id, cur_value, data_id) in list(cur.fetchall()):
-            #print("set_text: poid:%s pid:%s, cv:%s, did:%s"%(parent_object_id, property_id, cur_value, data_id))
-            # Check if there is already a text for this, update it
-            if cur_value:
-                cmd = "UPDATE text SET value=? WHERE data_id=?"
-                cur.execute(cmd, [value, data_id])
-            elif property_id:
-                pass
-                # Check if there is already a property for this
-
-                # Set property data to default value
-
-                # Set text to new value
-            if self.coad.get_by_object_id(parent_object_id).hierarchy != tag:
+        # TODO: Duplicate property names on different objects
+        for (parent_object_id, membership_id, property_id) in list(cur.fetchall()):
+            parent_obj = self.coad.get_by_object_id(parent_object_id)
+            # Check if there is already a data for this property
+            cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=?"
+            cur.execute(cmd, [membership_id, property_id])
+            match_data = list(cur.fetchall())
+            #print "mem:%s prop:%s rc:%s"%(membership_id, property_id, cur.rowcount)
+            if len(match_data) < 1:
+                default_value = self.get_class().valid_properties[parent_obj.meta['name']][str(property_id)]['default_value']
+                # Get uid for new data
+                cmd = "SELECT uid FROM data"
+                cur.execute(cmd)
+                last_uid = max(map(int, [x[0] for x in cur.fetchall()]))
+                cmd = "INSERT INTO data (uid,membership_id,value,property_id) VALUES (?,?,?,?)"
+                cur.execute(cmd, [str(last_uid+1), membership_id, default_value, property_id])
+                data_id = cur.lastrowid
+            else:
+                data_id = match_data[0][0]
+                # Check for existing text
+                cmd = "SELECT data_id FROM text WHERE data_id=?"
+                cur.execute(cmd, [data_id])
+                if cur.rowcount > 0:
+                    cmd = "UPDATE text SET value=? WHERE data_id=?"
+                    cur.execute(cmd, [value, data_id])
+                    continue
+            cmd = "INSERT INTO text (data_id,value) VALUES (?,?)"
+            cur.execute(cmd, [data_id, value])
+            # Check if tag != parent_object_id and it's not System.System
+            if tag != 'System.System' and tag != parent_obj.hierarchy:
+                # Check if tag already set for tag's object_id
                 tag_obj = self.coad.get_by_hierarchy(tag)
-                tag_obj_id = tag_obj.meta['object_id']
-                # Check for existing tag on this data object and tag
-                cmd = "SELECT count(*) FROM tag WHERE data_id=? AND object_id=?"
-                cur.execute(cmd, [data_id, tag_obj_id])
-                if cur.fetchone()[0] == 0:
-                    # Add tag here
-                    pass
-        self.coad.dbcon.commit()
-
+                cmd = "SELECT data_id FROM tag WHERE data_id=? AND object_id=?"
+                cur.execute(cmd, [data_id, tag_obj.meta['object_id']])
+                if cur.rowcount < 1:
+                    # Add new tag for data
+                    cmd = "INSERT INTO tag (data_id,object_id) VALUES (?,?)"
+                    cur.execute(cmd, [data_id, tag_obj.meta['object_id']])
+            self.coad.dbcon.commit()
+        return
 
     def dump(self, recursion_level=0):
         ''' Print to stdout as much information as possible about object to facilitate debugging
@@ -1117,9 +1135,33 @@ class ObjectDict(collections.MutableMapping):
         if len(children):
             print(spacing+'    Children (%s):'%len(children))
             for k in children:
-                self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
+                msg = '        '+k
+                print(spacing + msg)
+                #self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
         else:
             print(spacing+'    No children')
+        # Properties
+        props = self.get_properties()
+        prop_keys = sorted(props)
+        if len(prop_keys):
+            print(spacing+'    Properties:')
+            for pkey in prop_keys:
+                print(spacing+'        '+pkey)
+                for vkey in sorted(props[pkey]):
+                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        else:
+            print(spacing+'    No properties')
+        # Text
+        props = self.get_text()
+        prop_keys = sorted(props)
+        if len(prop_keys):
+            print(spacing+'    Text values:')
+            for pkey in prop_keys:
+                print(spacing+'        '+pkey)
+                for vkey in sorted(props[pkey]):
+                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        else:
+            print(spacing+'    No text values')
 
     def print_object_attrs(self):
         ''' Prints the object's attributes in Class.Object.Attribute=Value format

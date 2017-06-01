@@ -326,11 +326,16 @@ class TestObjectDictProperties(unittest.TestCase):
         filename = 'coad/test/RTS-96.xml'
         coad = COAD(filename)
         # Change an existing data file
-        expected = {u'Scenario.4HA_UC': {u'Filename': u'test_filename'}}
+        expected = {'Scenario.4HA_UC': {'Filename': 'test_filename'}}
         coad['Data File']['4HA_UC'].set_text('Filename', 'test_filename')
         result = coad['Data File']['4HA_UC'].get_text()
         self.assertEqual(result, expected)
         # Create a new data file text
+        coad['Data File']['RT_UC'].copy('test_data_file')
+        coad['Data File']['test_data_file'].set_text('Filename', 'another_test_filename', tag='Scenario.4HA_UC')
+        result = coad['Data File']['test_data_file'].get_text()
+        expected = {'Scenario.4HA_UC': {'Filename': 'another_test_filename'}}
+        self.assertEqual(result, expected)
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
