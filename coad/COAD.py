@@ -346,6 +346,8 @@ class ClassDict(collections.MutableMapping):
         cur = self.coad.dbcon.cursor()
         cur.execute("SELECT * FROM object WHERE class_id=? AND name=?", [self.meta['class_id'], key])
         objrow = cur.fetchone()
+        if objrow is None:
+            raise Exception("No such object '%s' in %s"%(key, self.meta['name']))
         obj = dict(zip([d[0] for d in cur.description], objrow))
         return ObjectDict(self.coad, obj)
         #return self.store[key]
@@ -529,6 +531,9 @@ class ObjectDict(collections.MutableMapping):
         ''' Create a new object entry in the database, duplicate all the
             attribute_data entries as well.
             # TODO: Enforce unique naming
+
+        Returns:
+            new ObjectDict
         '''
         # Verify there is no existing object of this class with this name
         if newname in self.get_class().keys():
@@ -540,7 +545,7 @@ class ObjectDict(collections.MutableMapping):
             if k == 'GUID':
                 cols.append(k)
                 vals.append(str(uuid.uuid4()))
-            if k != 'object_id':
+            elif k != 'object_id':
                 cols.append(k)
                 if k == 'name':
                     if newname is None:
