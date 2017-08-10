@@ -11,7 +11,7 @@ class TestCOAD(unittest.TestCase):
         self.assertEqual(master_coad['Performance']['Gurobi']['SOLVER'],'4')
 
     def test_list(self):
-        self.assertEqual(['MOSEK', 'CPLEX', 'Xpress-MP', 'Gurobi'], master_coad.list('Performance'))
+        self.assertEqual(set(['MOSEK', 'CPLEX', 'Xpress-MP', 'Gurobi']), set(master_coad.list('Performance')))
 
     def test_classes(self):
         expected = [ "System", "Generator", "Fuel", "Fuel Contract", "Emission",
@@ -29,7 +29,7 @@ class TestCOAD(unittest.TestCase):
 
     def test_objects(self):
         expected = [u'MOSEK', u'CPLEX', u'Xpress-MP', u'Gurobi']
-        self.assertEqual(expected, master_coad['Performance'].keys())
+        self.assertEqual(set(expected), set(master_coad['Performance'].keys()))
 
     def test_get(self):
         identifier='Performance.Gurobi.SOLVER'
@@ -217,6 +217,7 @@ class TestObjectDictProperties(unittest.TestCase):
         # Get property
         self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
         # Tagged properties
+        print coad['Generator']['118-1'].get_properties()
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
 
     def test_single_properties(self):

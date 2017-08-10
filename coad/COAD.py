@@ -14,12 +14,16 @@ Example:
     print("After set, solver is %s"%coad['Performance']['Gurobi']['SOLVER'])
 """
 import collections
+import logging
 import os
 import sqlite3 as sql
 import sys
+import time
 import uuid
 
 import plexos_database
+
+_logger = logging.getLogger(__name__)
 
 class COAD(collections.MutableMapping):
     '''Edit models, horizons, memberships and object attributes of plexos data.
@@ -113,16 +117,54 @@ class COAD(collections.MutableMapping):
         for att in attributes:
             print('%s.%s.%s=%s'%tuple(att))
 
-    def get_by_object_id(self, object_id):
-        ''' Return an ObjectDict based on object_id
+    def get_by_class_id(self, class_id):
+        ''' Return an ClassDict based on class_id
         '''
+        stime = time.time()
+        _logger.info("get_by_class_id(%s) start", class_id)
+        cur = self.dbcon.cursor()
+        sel = '''SELECT name FROM class WHERE class_id=?'''
+        cur.execute(sel, [class_id])
+        (name, ) = cur.fetchone()
+        retcls = self[name]
+        _logger.info("get_by_class_id(%s) took %s sec", class_id, time.time()-stime)
+        return retcls
+
+    def get_hierarchy_for_object_id(self, object_id):
+        ''' Return a hierarchy based on object_id.  Added to remove instantiation
+        of various objects during property lookups
+        '''
+        stime = time.time()
+        _logger.info("get_hierarchy_for_object_id(%s) start", object_id)
         cur = self.dbcon.cursor()
         sel = '''SELECT o.name AS oname, c.name AS cname FROM object o
                  INNER JOIN class c ON c.class_id=o.class_id
                  WHERE object_id=?'''
         cur.execute(sel, [object_id])
         (oname, cname) = cur.fetchone()
-        return self[cname][oname]
+        #retobj = self[cname][oname]
+        _logger.info("get_hierarchy_for_object_id(%s) took %s sec", object_id, time.time()-stime)
+        return "%s.%s"%(cname, oname)
+        #objcls = ClassDict(self, clsmeta)
+        #return ObjectDict(objcls, objmeta)
+
+    def get_by_object_id(self, object_id):
+        ''' Return an ObjectDict based on object_id
+        '''
+        stime = time.time()
+        _logger.info("get_by_object_id(%s) start", object_id)
+        (cname, oname) = self.get_hierarchy_for_object_id(object_id).split('.')
+
+        #cur = self.dbcon.cursor()
+        #sel = '''SELECT o.name AS oname, c.name AS cname FROM object o
+        #         INNER JOIN class c ON c.class_id=o.class_id
+        #         WHERE object_id=?'''
+        #cur.execute(sel, [object_id])
+        #(oname, cname) = cur.fetchone()
+
+        retobj = self[cname][oname]
+        _logger.info("get_by_object_id(%s) took %s sec", object_id, time.time()-stime)
+        return retobj
         #objcls = ClassDict(self, clsmeta)
         #return ObjectDict(objcls, objmeta)
 
@@ -133,6 +175,7 @@ class COAD(collections.MutableMapping):
             class_name|object_name|attribute_name = attribute value
             if one of the names has a . in it
         '''
+        stime = time.time()
         hier = identifier.split('.')
         if hier[0] not in self:
             hier = identifier.split('|')
@@ -147,6 +190,7 @@ class COAD(collections.MutableMapping):
                 if hier[2] not in retobj:
                     raise Exception("No such attribute '%s' in %s"%(hier[2], hier[1]))
                 retobj = retobj[hier[2]]
+        _logger.info("get_by_hierarchy(%s) took %s sec", identifier, time.time()-stime)
         return retobj
 
     def set(self, identifier, value):
@@ -251,13 +295,16 @@ class COAD(collections.MutableMapping):
         raise Exception('Operation not supported yet')
 
     def __getitem__(self, key):
+        stime = time.time()
         cur = self.dbcon.cursor()
         cur.execute("SELECT * FROM class WHERE name=?", [key])
         row = cur.fetchone()
         if row is None:
             raise Exception("No such class %s"%key)
         c_meta = dict(zip([d[0] for d in cur.description], row))
-        return ClassDict(self, c_meta)
+        c_ret = ClassDict(self, c_meta)
+        _logger.info("Got class %s in %s sec", key, time.time()-stime)
+        return c_ret
         #for row in cur.fetchall():
         #    c_meta = dict(zip([d[0] for d in cur.description], row))
         #    self.store[c_meta['name']] = ClassDict(self, c_meta)
@@ -289,6 +336,7 @@ class ClassDict(collections.MutableMapping):
     '''
     def __init__(self, coad, meta):
         # TODO Remove store and have it be a better ORM
+        stime = time.time()
         self.store = dict()
         self.coad = coad
         self.meta = meta
@@ -325,6 +373,9 @@ class ClassDict(collections.MutableMapping):
                 if v['name'] in  self.valid_properties_by_name:
                     raise Exception("Duplicate property %s in class %s"%(v['name'], self.meta['name']))
                 self.valid_properties_by_name[p][v['name']] = k
+        # For some reason this locks up jupyter
+        #_logger.info("end classdict")
+        #_logger.info("ClassDict init for %s took %s sec", self.meta['name'], time.time()-stime)
         #cur = self.coad.dbcon.cursor()
         #cur.execute("SELECT * FROM object WHERE class_id=?", [self.meta['class_id']])
         #for row in cur.fetchall():
@@ -343,13 +394,17 @@ class ClassDict(collections.MutableMapping):
         self.store[key] = value
 
     def __getitem__(self, key):
+        stime = time.time()
+        _logger.info("ClassDict.get(%s) start", key)
         cur = self.coad.dbcon.cursor()
         cur.execute("SELECT * FROM object WHERE class_id=? AND name=?", [self.meta['class_id'], key])
         objrow = cur.fetchone()
         if objrow is None:
             raise Exception("No such object '%s' in %s"%(key, self.meta['name']))
         obj = dict(zip([d[0] for d in cur.description], objrow))
-        return ObjectDict(self.coad, obj)
+        o_ret = ObjectDict(self.coad, obj)
+        _logger.info("ClassDict.get(%s) took %s sec", key, time.time()-stime)
+        return o_ret
         #return self.store[key]
 
     def __delitem__(self, key):
@@ -458,6 +513,8 @@ class ObjectDict(collections.MutableMapping):
         Uses Abstract Base Classes to extend a dictionary
     '''
     def __init__(self, coad, meta):
+        stime = time.time()
+        _logger.info("ObjectDict init %s start", meta['name'])
         self.store = dict()
         self.coad = coad
         self.meta = meta
@@ -485,6 +542,7 @@ class ObjectDict(collections.MutableMapping):
                 atr = dict(zip([d[0] for d in cur.description], row))
                 self.valid_attributes[atr['name']] = atr
         self._no_update = False
+        _logger.info("ObjectDict init %s took %s sec", meta['name'], time.time()-stime)
 
     def __setitem__(self, key, value):
         if self._no_update:
@@ -691,6 +749,7 @@ class ObjectDict(collections.MutableMapping):
     def get_class(self):
         ''' Return the ClassDict that contains this object
         '''
+        return self.coad.get_by_class_id(self.meta['class_id'])
         for class_dict in self.coad.values():
             if class_dict.meta['class_id'] == self.meta['class_id']:
                 return class_dict
@@ -721,94 +780,50 @@ class ObjectDict(collections.MutableMapping):
         Returns:
             dict of class/object_hierarchy=dict of property_name=value
         '''
+        stime = time.time()
         cur = self.coad.dbcon.cursor()
         props = {}
         # Sometimes there is no data table
         if 'data' not in self.coad.table_list:
             return props
-        cmd = "SELECT parent_object_id, membership_id FROM membership WHERE child_object_id=?"
+        cmd = "SELECT name, value, parent_object_id, input_mask, tag_object_id FROM property_view WHERE child_object_id=?"
+        if self.coad.has_data_uid:
+            cmd += " ORDER BY uid"
         cur.execute(cmd, [self.meta['object_id']])
-        memberships = list(cur.fetchall())
-        #memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
-        for member in memberships:
-            parent = self.coad.get_by_object_id(member[0])
-            cmd = "SELECT * FROM data WHERE membership_id=?"
-            if self.coad.has_data_uid:
-                cmd += " ORDER BY uid"
-            cur.execute(cmd, [member[1]])
-            data = []
-            for row in cur.fetchall():
-                data.append(dict(zip([d[0] for d in cur.description], row)))
-            #data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
-            for d in data:
-                tag_hier = parent.hierarchy
-                if 'tag' in self.coad.table_list:
-                    # Can parents and tags coexist? Yes!  It appears the data_id
-                    # shown in the tag is the overwritten value of the default.
-                    # Check for tag, which is modified data for a specific data_id
-                    cmd = "SELECT object_id FROM tag WHERE data_id=?"
-                    #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
-                    cur.execute(cmd, [d['data_id']])
-                    tag = cur.fetchone()
-                    if tag is not None:
-                        # TODO: Ever multiple tags for the same data_id?
-                        tag_obj = self.coad.get_by_object_id(tag[0])
-                        #raise Exception("Found a tag! parent %s, tag %s"%(parent.hierarchy, tag_obj.hierarchy))
-                        tag_hier = tag_obj.hierarchy
-                name = self.get_class().valid_properties[parent.get_class().meta['name']][str(d['property_id'])]['name']
-                # Test for input mask, substituting if needed
-                cmd = "SELECT input_mask FROM property WHERE property_id=?"
-                #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
-                cur.execute(cmd, [d['property_id']])
-                prop = cur.fetchone()
-                #prop = self.clsdict.coad.db['property'].find_one({'property_id':d['property_id']})
+        for (name, value, parent_object_id, input_mask, tag_object_id)  in cur.fetchall():
+            pvtime = time.time()
+            if tag_object_id:
+                #map_hier = self.coad.get_by_object_id(tag_object_id).hierarchy
+                map_hier = self.coad.get_hierarchy_for_object_id(tag_object_id)
+            else:
+                #map_hier = self.coad.get_by_object_id(parent_object_id).hierarchy
+                map_hier = self.coad.get_hierarchy_for_object_id(parent_object_id)
+            if map_hier not in props:
+                props[map_hier] = {}
+            if input_mask:
                 valdict = {}
-                if prop[0] is not None:
-                    mask = prop[0].split(";")
-                    it = iter(mask)
-                    for k in it:
-                        valdict[str(k)] = next(it).strip("\"")
-                if d['value'] in valdict:
-                    value = valdict[d['value']]
+                mask = input_mask.split(";")
+                it = iter(mask)
+                for k in it:
+                    valdict[str(k)] = next(it).strip("\"")
+                if value in valdict:
+                    value = valdict[value]
+            if name not in props[map_hier]:
+                props[map_hier][name] = value
+            else:
+                if not isinstance(props[map_hier][name], list):
+                    props[map_hier][name] = [props[map_hier][name], value]
                 else:
-                    value = d['value']
-                if tag_hier not in props:
-                    props[tag_hier] = {}
-                if name not in props[tag_hier]:
-                    props[tag_hier][name] = value
-                else:
-                    if not isinstance(props[tag_hier][name], list):
-                        props[tag_hier][name] = [props[tag_hier][name], value]
-                    else:
-                        props[tag_hier][name].append(value)
-        return props
-        '''Return a dict of all properties set for this object
-        '''
-        cur = self.coad.dbcon.cursor()
-        props = {}
-        # Check for table "data"
-        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='data'")
-        if len(cur.fetchall()) == 1:
-            cmd = """SELECT p.name, d.value FROM data d
-                INNER JOIN property p ON p.property_id = d.property_id
-                WHERE membership_id IN
-                (SELECT membership_id FROM membership WHERE child_object_id=?)"""
-            if self.coad.has_data_uid:
-                cmd += " ORDER BY d.uid"
-            cur.execute(cmd, [self.meta['object_id']])
-            for (name, value) in cur.fetchall():
-                if name not in props:
-                    props[name] = value
-                else:
-                    if not isinstance(props[name], list):
-                        props[name] = [props[name], value]
-                    else:
-                        props[name].append(value)
+                    props[map_hier][name].append(value)
+            _logger.info("prov_view for %s took %s sec", name, time.time()-pvtime)
+
+        _logger.info("get_properties() took %s sec", time.time()-stime)
         return props
 
     def get_property(self, name, tag='System.System'):
         '''Return the value of a property by name
         '''
+        stime = time.time()
         # Sometimes there is no data table
         if 'data' not in self.coad.table_list:
             return None
@@ -816,28 +831,16 @@ class ObjectDict(collections.MutableMapping):
             tag_obj = tag
         else:
             tag_obj = self.coad.get_by_hierarchy(tag)
-        tag_clsname = tag_obj.get_class().meta['name']
-        # Reverse lookup of class.valid_properties to get property_id
-        if name not in self.get_class().valid_properties_by_name[tag_clsname]:
-            raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
-        prop_id = self.get_class().valid_properties_by_name[tag_clsname][name]
-        # Tag object should always be ObjectDict
-        tag_obj_id = tag_obj.meta['object_id']
-        cmd = "SELECT membership_id FROM membership WHERE child_object_id=? AND parent_object_id=?"
         cur = self.coad.dbcon.cursor()
-        cur.execute(cmd, [self.meta['object_id'], tag_obj_id])
-        member = cur.fetchone()
-        #member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
-        if member is None:
-            raise Exception("Unable to find membership for %s in %s"%(tag.hierarchy, self.hierarchy))
-        # Test for input mask, substituting if needed
-        cmd = "SELECT input_mask FROM property WHERE property_id=?"
-        cur.execute(cmd, [prop_id])
-        prop = cur.fetchone()
-        #prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+        cmd = "SELECT value, input_mask FROM property_view WHERE (child_object_id=? AND name=?) AND (parent_object_id=? OR tag_object_id=?)"
+        if self.coad.has_data_uid:
+            cmd += " ORDER BY uid"
+        cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id'], tag_obj.meta['object_id']])
+        all_data = list(cur.fetchall())
+
         valdict = {}
-        if prop[0] is not None:
-            mask = prop[0].split(";")
+        if len(all_data) and all_data[0][1]:
+            mask = all_data[0][1].split(";")
             it = iter(mask)
             for k in it:
                 valdict[str(k)] = next(it).strip("\"")
@@ -846,15 +849,11 @@ class ObjectDict(collections.MutableMapping):
                 return valdict[val]
             else:
                 return val
-        cmd = "SELECT value FROM data WHERE membership_id=? AND property_id=?"
-        if self.coad.has_data_uid:
-            cmd += " ORDER BY uid"
-        cur.execute(cmd, [member[0], prop_id])
-        all_data = cur.fetchall()
         mapped_data = [valmap(d[0]) for d in all_data]
         data_count = len(mapped_data)
+        _logger.info("get_property(%s, %s) took %s sec", name, tag, time.time()-stime)
         if data_count == 0:
-            raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+            return None
         elif data_count == 1:
             return mapped_data[0]
         else:
@@ -1034,7 +1033,8 @@ class ObjectDict(collections.MutableMapping):
                 cur.execute(cmd, [data_id])
                 for (tag_obj_id,) in cur.fetchall():
                     #print("  tag: %s"%self.coad.get_by_object_id(tag_obj_id).hierarchy)
-                    tag_obj_hier = self.coad.get_by_object_id(tag_obj_id).hierarchy
+                    #tag_obj_hier = self.coad.get_by_object_id(tag_obj_id).hierarchy
+                    tag_obj_hier = self.coad.get_hierarchy_for_object_id(tag_obj_id)
                     if tag_obj_hier not in text:
                         text[tag_obj_hier] = {}
                     text[tag_obj_hier][name] = value

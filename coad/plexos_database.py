@@ -185,17 +185,48 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     index_list = [('attribute', 'object_id'),
                   ('attribute_data', 'object_id'),
                   ('attribute_data', 'attribute_id'),
+                  ('collection', 'child_class_id'),
                   ('data', 'membership_id'),
                   ('data', 'property_id'),
                   ('data', 'uid'),
+                  ('tag', 'data_id'),
+                  ('text', 'data_id'),
                   ('membership', 'parent_object_id'),
                   ('membership', 'child_object_id'),
-                  ('object', 'object_id'),
-                  ('property', 'property_id')]
+                  ('object', 'class_id'),
+                  ('property', 'collection_id')]
     for (tablename, colname) in index_list:
         if tablename in tables and colname in tables[tablename]:
             dbcon.execute("CREATE INDEX %s_%s_idx ON %s (%s) "%(tablename, colname, tablename, colname))
-
+    dbcon.execute("CREATE INDEX object_class_id_and_name_idx ON object (class_id, name)")
+    # Create better view of properties, substitute UID if exists in data table
+    if 'data' in tables:
+        cmd = """CREATE VIEW property_view AS SELECT
+            data.data_id,
+            data.value,
+            {uid}
+            property.name AS name,
+            property.input_mask AS input_mask,
+            membership.child_object_id AS child_object_id,
+            membership.parent_object_id AS parent_object_id,
+            {tag} AS tag_object_id,
+            {text} AS text_value
+        FROM data
+        INNER JOIN property ON property.property_id = data.property_id
+        INNER JOIN membership ON membership.membership_id = data.membership_id
+        {tagjoin}
+        {textjoin}
+        """
+        subs = {'uid':'', 'tag':'NULL', 'tagjoin':'', 'text':'NULL', 'textjoin':''}
+        if 'uid' in tables['data']:
+            subs['uid'] = "data.uid,"
+        if 'tag' in tables:
+            subs['tag'] = "tag.object_id"
+            subs['tagjoin'] = "LEFT OUTER JOIN tag ON tag.data_id = data.data_id"
+        if 'text' in tables:
+            subs['text'] = "text.value"
+            subs['textjoin'] = "LEFT OUTER JOIN text ON text.data_id = data.data_id"
+        dbcon.execute(cmd.format(**subs))
     LOGGER.info('Loaded %s rows in %d seconds',row_count,(time.time()-start_time))
     if has_resource:
         LOGGER.info('Memory usage: %s',resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
