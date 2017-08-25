@@ -138,6 +138,9 @@ class TestObjectDict(unittest.TestCase):
         self.coad['Model']['Base'].set_children(self.coad['Performance']['Gurobi'])
         should_contain = [self.coad['Horizon']['Base'],self.coad['Report']['Base'],self.coad['ST Schedule']['Base'],self.coad['Performance']['Gurobi']]
         self.assertEqual(should_contain,self.coad['Model']['Base'].get_children())
+        # Duplicates
+        self.coad['Model']['Base'].set_children(self.coad['Performance']['Gurobi'], replace=False)
+        self.assertEqual(1, len(self.coad['Model']['Base'].get_children('Performance')))
         # TODO: Test multiple new children of different classes that overwrites existing
         # TODO: Test adding new child once collection functionality is understood
         # TODO: Add mix of new child classes once collection functionality is understood

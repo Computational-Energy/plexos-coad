@@ -679,6 +679,9 @@ class ObjectDict(collections.MutableMapping):
                 cur.execute(cmd, [self.meta['object_id'], class_id])
             collection_id = self.get_collection_id(class_id)
             for obj in objectdicts:
+                # IF NOT EXISTS is problematic in sqlite
+                cmd = "DELETE FROM membership WHERE parent_object_id=? AND child_object_id=?"
+                cur.execute(cmd, [self.meta['object_id'],  obj.meta['object_id']])
                 cmd = '''INSERT INTO membership (parent_class_id, parent_object_id,
                          collection_id, child_class_id, child_object_id)
                          VALUES (?,?,?,?,?)'''
@@ -865,6 +868,7 @@ class ObjectDict(collections.MutableMapping):
         '''
         if isinstance(value, list):
             raise Exception("Overwriting list of data not supported yet")
+        stime = time.time()
         cur = self.coad.dbcon.cursor()
         tag_obj = self.coad.get_by_hierarchy(tag)
         tag_clsname = tag_obj.get_class().meta['name']
@@ -994,6 +998,7 @@ class ObjectDict(collections.MutableMapping):
                 #self.clsdict.coad.db['data'].update(data, {'$set': {'value': get_mask_value(prop, value)}})
             else:
                 raise Exception('Overwriting list of data not supported yet')
+        _logger.info("set_property(%s, %s, %s) took %s sec", name, value, tag, time.time()-stime)
         return
 
     def set_properties(self, new_dict):
