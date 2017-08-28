@@ -153,7 +153,7 @@ class COAD(collections.MutableMapping):
         '''
         stime = time.time()
         _logger.info("get_by_object_id(%s) start", object_id)
-        (cname, oname) = self.get_hierarchy_for_object_id(object_id).split('.')
+        (cname, oname) = self.get_hierarchy_for_object_id(object_id).split('.',1)
 
         #cur = self.dbcon.cursor()
         #sel = '''SELECT o.name AS oname, c.name AS cname FROM object o
