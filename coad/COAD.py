@@ -291,6 +291,25 @@ class COAD(collections.MutableMapping):
             for tbl in set(other_tables) - set(tables):
                 print('Tables added to first file')
 
+    def get_config(self, key):
+        '''Retrieve the value for a specified configuration element from the
+        config table'''
+        cur = self.dbcon.cursor()
+        cur.execute("SELECT value FROM config WHERE element=?", [key])
+        row = cur.fetchone()
+        if row is None:
+            raise Exception("No such config element %s"%key)
+        return row[0]
+
+    def set_config(self, key, value):
+        '''Set the value for a specified configuration element into the
+        config table'''
+        cur = self.dbcon.cursor()
+        cmd = "UPDATE config SET value=? WHERE element=?"
+        cur.execute(cmd, [value, key])
+        self.dbcon.commit()
+        return value
+
     def __setitem__(self, key, value):
         raise Exception('Operation not supported yet')
 

@@ -91,6 +91,12 @@ class TestCOAD(unittest.TestCase):
             self.assertEqual(v, actual[k])
         #self.assertEqual(expected, master_coad['Generator'].valid_properties_by_name['Emission'])
 
+    def test_config(self):
+        '''Get and set config elements
+        '''
+        self.assertEqual('0', master_coad.get_config('Dynamic'))
+        master_coad.set_config('Dynamic', '-1')
+        self.assertEqual('-1', master_coad.get_config('Dynamic'))
 
 class TestObjectDict(unittest.TestCase):
     def setUp(self):
