@@ -982,6 +982,7 @@ class ObjectDict(collections.MutableMapping):
             cmd = "INSERT INTO tag (data_id, object_id) VALUES (?,?)"
             cur.execute(cmd, [last_data_id+1, tag_obj.meta['object_id']])
             self.coad.dbcon.commit()
+            self.coad.set_config("Dynamic", "-1")
             #self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id+1),
             #                            'object_id':tag_obj.meta['object_id']})
         else:
