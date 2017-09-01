@@ -885,8 +885,6 @@ class ObjectDict(collections.MutableMapping):
         '''Set the value of a property by name
         Limited to modifying existing values.  Will not add new data.
         '''
-        if isinstance(value, list):
-            raise Exception("Overwriting list of data not supported yet")
         stime = time.time()
         cur = self.coad.dbcon.cursor()
         tag_obj = self.coad.get_by_hierarchy(tag)
@@ -910,6 +908,8 @@ class ObjectDict(collections.MutableMapping):
                 return value
         # If the tagged class doesn't have the property as valid, it's set as a tag
         if tag_clsname not in self.get_class().valid_properties_by_name:
+            if isinstance(value, list):
+                raise Exception("Overwriting list of tagged data is not supported yet")
             # Modify if value is already set
             cmd = "SELECT data_id FROM tag WHERE object_id=?"
             cur.execute(cmd, [tag_obj.meta['object_id']])
@@ -1002,7 +1002,10 @@ class ObjectDict(collections.MutableMapping):
             #member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
             if member is None:
                 raise Exception("Unable to find membership for %s in %s"%(tag, self.meta['name']))
-            cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=?"
+            if self.coad.has_data_uid:
+                cmd = "SELECT data_id, uid FROM data WHERE membership_id=? AND property_id=? ORDER BY uid"
+            else:
+                cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=? ORDER BY data_id"
             cur.execute(cmd, [member[0], prop_id])
             all_data = list(cur.fetchall())
             #all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
@@ -1011,13 +1014,23 @@ class ObjectDict(collections.MutableMapping):
                 raise Exception("No exisiting data found for membership %s"%member[0])
             elif data_count == 1:
                 # Can replace this data
+                if isinstance(value, list):
+                    raise Exception("Attempting to set list for a single data property.")
                 data = all_data[0]
                 cmd = "UPDATE data SET value=? WHERE data_id=?"
                 cur.execute(cmd, [get_mask_value(value, prop[0]), data[0]])
                 self.coad.dbcon.commit()
                 #self.clsdict.coad.db['data'].update(data, {'$set': {'value': get_mask_value(prop, value)}})
             else:
-                raise Exception('Overwriting list of data not supported yet')
+                if not isinstance(value, list):
+                    raise Exception("Attempting to set a single value for a list data property.")
+                if len(value) != len(all_data):
+                    raise Exception("Length of values passed in %s does not match set data list %s"%(len(value), len(all_data)))
+                for val_idx, raw_val in enumerate(value):
+                    # Data ids will already be in the correct order
+                    cmd = "UPDATE data SET value=? WHERE data_id=?"
+                    cur.execute(cmd, [get_mask_value(raw_val, prop[0]), all_data[val_idx][0]])
+                    self.coad.dbcon.commit()
         _logger.info("set_property(%s, %s, %s) took %s sec", name, value, tag, time.time()-stime)
         return
 

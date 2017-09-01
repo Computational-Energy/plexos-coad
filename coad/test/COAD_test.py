@@ -279,10 +279,9 @@ class TestObjectDictProperties(unittest.TestCase):
         self.assertEqual(g.get_properties()['System.System'], props)
         # Get property
         self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
-        '''TODO: Support setting multiple data
         # Set property
-        #g.set_property('Load Point', ['a', 'b', 'c', 'd'])
-        #self.assertEqual(g.get_property('Load Point'), ['a', 'b', 'c', 'd'])
+        g.set_property('Load Point', ['a', 'b', 'c', 'd'])
+        self.assertEqual(g.get_property('Load Point'), ['a', 'b', 'c', 'd'])
         # Set property with wrong length
         with self.assertRaises(Exception):
             g.set_property('Load Point', ['a', 'b', 'c'])
@@ -299,7 +298,6 @@ class TestObjectDictProperties(unittest.TestCase):
         g2 = saved_coad['Generator']['123-3']
         self.assertEqual(g2.get_property('Maintenance Rate'), new_props['Maintenance Rate'])
         self.assertEqual(g2.get_property('Heat Rate'), new_props['Heat Rate'])
-        '''
 
     def test_modify_single_tagged_properties(self):
         '''Tests related to modifying tagged properties with a single value
