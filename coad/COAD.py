@@ -1084,11 +1084,12 @@ class ObjectDict(collections.MutableMapping):
                 text[parent.hierarchy][name] = value
         return text
 
-    def set_text(self, name, value, tag='System.System'):
+    def set_text(self, name, value, tag='System.System', class_id='Data File'):
         '''Set the value of a text item by name
             Will add new data if no existing text matches the tag.
             Will NOT add new membership if one doesn't exist.
             Assumes System.System requires a property set with the default value.
+            Assumes it will use the "Data File" class for its class_id
 
             Allows setting filenames for certain properties such as Data File
         '''
@@ -1125,8 +1126,12 @@ class ObjectDict(collections.MutableMapping):
                     cmd = "UPDATE text SET value=? WHERE data_id=?"
                     cur.execute(cmd, [value, data_id])
                     continue
-            cmd = "INSERT INTO text (data_id,value) VALUES (?,?)"
-            cur.execute(cmd, [data_id, value])
+            # Get class_id
+            cmd ="SELECT class_id FROM class WHERE class_id=? OR name=?"
+            cur.execute(cmd, [class_id, class_id])
+            text_class_id = cur.fetchone()[0]
+            cmd = "INSERT INTO text (data_id,class_id,value) VALUES (?,?,?)"
+            cur.execute(cmd, [data_id, text_class_id, value])
             # Check if tag != parent_object_id and it's not System.System
             if tag != 'System.System' and tag != parent_obj.hierarchy:
                 # Check if tag already set for tag's object_id

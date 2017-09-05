@@ -344,6 +344,9 @@ class TestObjectDictProperties(unittest.TestCase):
         result = coad['Data File']['test_data_file'].get_text()
         expected = {'Scenario.4HA_UC': {'Filename': 'another_test_filename'}}
         self.assertEqual(result, expected)
+        cur = coad.dbcon.cursor()
+        cur.execute("SELECT class_id FROM text WHERE data_id=(SELECT MAX(data_id) FROM text)")
+        self.assertEqual(41, cur.fetchone()[0])
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
