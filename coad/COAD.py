@@ -1107,7 +1107,7 @@ class ObjectDict(collections.MutableMapping):
             cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=?"
             cur.execute(cmd, [membership_id, property_id])
             match_data = list(cur.fetchall())
-            #print "mem:%s prop:%s rc:%s"%(membership_id, property_id, cur.rowcount)
+            _logger.debug("mem:%s prop:%s rc:%s", membership_id, property_id, len(match_data))
             if len(match_data) < 1:
                 default_value = self.get_class().valid_properties[parent_obj.meta['name']][str(property_id)]['default_value']
                 # Get uid for new data
@@ -1116,32 +1116,34 @@ class ObjectDict(collections.MutableMapping):
                 last_uid = max(map(int, [x[0] for x in cur.fetchall()]))
                 cmd = "INSERT INTO data (uid,membership_id,value,property_id) VALUES (?,?,?,?)"
                 cur.execute(cmd, [str(last_uid+1), membership_id, default_value, property_id])
+                _logger.debug(cmd+":".join( [str(last_uid+1), str(membership_id), default_value, str(property_id)]))
                 data_id = cur.lastrowid
             else:
                 data_id = match_data[0][0]
-                # Check for existing text
-                cmd = "SELECT data_id FROM text WHERE data_id=?"
-                cur.execute(cmd, [data_id])
-                if cur.rowcount > 0:
-                    cmd = "UPDATE text SET value=? WHERE data_id=?"
-                    cur.execute(cmd, [value, data_id])
-                    continue
-            # Get class_id
-            cmd ="SELECT class_id FROM class WHERE class_id=? OR name=?"
-            cur.execute(cmd, [class_id, class_id])
-            text_class_id = cur.fetchone()[0]
-            cmd = "INSERT INTO text (data_id,class_id,value) VALUES (?,?,?)"
-            cur.execute(cmd, [data_id, text_class_id, value])
+            # Check for existing text
+            cmd = "SELECT data_id FROM text WHERE data_id=?"
+            cur.execute(cmd, [data_id])
+            if len(cur.fetchall()) > 0:
+                cmd = "UPDATE text SET value=? WHERE data_id=?"
+                cur.execute(cmd, [value, data_id])
+            else:
+                # Get class_id
+                cmd ="SELECT class_id FROM class WHERE class_id=? OR name=?"
+                cur.execute(cmd, [class_id, class_id])
+                text_class_id = cur.fetchone()[0]
+                cmd = "INSERT INTO text (data_id,class_id,value) VALUES (?,?,?)"
+                cur.execute(cmd, [data_id, text_class_id, value])
             # Check if tag != parent_object_id and it's not System.System
             if tag != 'System.System' and tag != parent_obj.hierarchy:
                 # Check if tag already set for tag's object_id
                 tag_obj = self.coad.get_by_hierarchy(tag)
                 cmd = "SELECT data_id FROM tag WHERE data_id=? AND object_id=?"
                 cur.execute(cmd, [data_id, tag_obj.meta['object_id']])
-                if cur.rowcount < 1:
+                if len(cur.fetchall()) < 1:
                     # Add new tag for data
                     cmd = "INSERT INTO tag (data_id,object_id) VALUES (?,?)"
                     cur.execute(cmd, [data_id, tag_obj.meta['object_id']])
+                    _logger.debug(cmd+":".join([str(data_id), str(tag_obj.meta['object_id'])]))
             self.coad.dbcon.commit()
         return
 

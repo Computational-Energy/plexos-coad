@@ -226,7 +226,7 @@ class TestObjectDictProperties(unittest.TestCase):
         # Get property
         self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
         # Tagged properties
-        print coad['Generator']['118-1'].get_properties()
+        #print coad['Generator']['118-1'].get_properties()
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
 
     def test_single_properties(self):
@@ -347,6 +347,10 @@ class TestObjectDictProperties(unittest.TestCase):
         cur = coad.dbcon.cursor()
         cur.execute("SELECT class_id FROM text WHERE data_id=(SELECT MAX(data_id) FROM text)")
         self.assertEqual(41, cur.fetchone()[0])
+        # Dup settings caused prop list to grow
+        coad['Data File']['test_data_file'].set_text('Filename', 'another_test_filename', tag='Scenario.4HA_UC')
+        result = coad['Data File']['test_data_file'].get_properties()
+        self.assertEqual('0', result['Scenario.4HA_UC']['Filename'])
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
