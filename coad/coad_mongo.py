@@ -150,6 +150,14 @@ class COAD(collections.MutableMapping):
                 class name.object name.attribute name''')
         self[class_name][object_name][attribute_name] = value
 
+    def get_hierarchy_for_object_id(self, object_id):
+        ''' Return a hierarchy based on object_id.  Added to remove instantiation
+        of various objects during property lookups
+        '''
+        objmeta = self.db['object'].find_one({'object_id':object_id})
+        clsmeta = self.db['class'].find_one({'class_id':objmeta['class_id']})
+        return "%s.%s"%(clsmeta['name'], objmeta['name'])
+
     def get_by_object_id(self, object_id):
         ''' Return an ObjectDict based on object_id
         '''
@@ -741,6 +749,73 @@ class ObjectDict(collections.MutableMapping):
         raise Exception('Operation not implemented')
         for name, value in new_dict.iteritems():
             self.set_property(name, value)
+
+    def get_text(self):
+        '''Return a dict of all text set for this object along with any
+        text tagged to another object.
+
+        Returns:
+            dict of class/object_hierarchy=dict of text property name=value
+        '''
+        #cur = self.coad.dbcon.cursor()
+        text = {}
+        # Sometimes there is no data or text table
+        if 'data' not in self.clsdict.coad.db.collection_names() or 'text' not in self.clsdict.coad.db.collection_names():
+            return text
+        members = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
+        for mem in members:
+            print("Member is %s"% mem)
+            parent = self.clsdict.coad.get_by_object_id(mem['parent_object_id'])
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':mem['membership_id']})
+            for dat in all_data:
+                all_text = self.clsdict.coad.db['text'].find({'data_id':dat['data_id']})
+                for txt in all_text:
+                    property_id = dat['property_id']
+                    name = self.clsdict.valid_properties[parent.get_class().meta['name']][str(property_id)]['name']
+                    tag_set = False
+                    if 'tag' in self.clsdict.coad.db.collection_names():
+                        all_tags = self.clsdict.coad.db['tag'].find({'data_id':dat['data_id']})
+                        for tag in all_tags:
+                            tag_obj_hier = self.clsdict.coad.get_hierarchy_for_object_id(tag['object_id'])
+                            if tag_obj_hier not in text:
+                                text[tag_obj_hier] = {}
+                            text[tag_obj_hier][name] = txt['value']
+                            tag_set = True
+                    if not tag_set:
+                        #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
+                        if parent.hierarchy not in text:
+                            text[parent.hierarchy] = {}
+                        text[parent.hierarchy][name] = txt['value']
+        return text
+
+        cmd = """SELECT m.parent_object_id, d.property_id, t.value, t.data_id FROM membership m
+                 INNER JOIN data d ON m.membership_id=d.membership_id
+                 INNER JOIN text t ON t.data_id=d.data_id
+                 WHERE child_object_id=?"""
+        cur.execute(cmd, [self.meta['object_id']])
+        for (parent_object_id, property_id, value, data_id) in list(cur.fetchall()):
+            parent = self.coad.get_by_object_id(parent_object_id)
+            name = self.get_class().valid_properties[parent.get_class().meta['name']][str(property_id)]['name']
+            # Check for tags
+            tag_set = False
+            if 'tag' in self.coad.table_list:
+                cmd = "SELECT object_id FROM tag WHERE data_id=?"
+                #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
+                cur.execute(cmd, [data_id])
+                for (tag_obj_id,) in cur.fetchall():
+                    #print("  tag: %s"%self.coad.get_by_object_id(tag_obj_id).hierarchy)
+                    #tag_obj_hier = self.coad.get_by_object_id(tag_obj_id).hierarchy
+                    tag_obj_hier = self.coad.get_hierarchy_for_object_id(tag_obj_id)
+                    if tag_obj_hier not in text:
+                        text[tag_obj_hier] = {}
+                    text[tag_obj_hier][name] = value
+                    tag_set = True
+            if not tag_set:
+                #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
+                if parent.hierarchy not in text:
+                    text[parent.hierarchy] = {}
+                text[parent.hierarchy][name] = value
+        return text
 
     def dump(self, recursion_level=0):
         ''' Print to stdout as much information as possible about object to facilitate debugging

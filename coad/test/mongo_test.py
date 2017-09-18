@@ -160,6 +160,16 @@ class TestDB(unittest.TestCase):
         self.assertEqual("-", master_coad['Performance'].get_categories()[0]['name'])
         self.assertEqual("-", master_coad['Performance']['Gurobi'].get_category())
 
+    def test_get_text(self):
+        '''Get text values for Data File objects
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        expected = {u'Scenario.4HA_UC': {u'Filename': u'\\Model a_DA_Base Solution\\interval\\ST Generator(*).Units Generating.csv'}}
+        result = coad['Data File']['4HA_UC'].get_text()
+        self.assertEqual(result, expected)
+
+
 
 class TestModifications(unittest.TestCase):
 
