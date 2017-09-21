@@ -788,34 +788,62 @@ class ObjectDict(collections.MutableMapping):
                         text[parent.hierarchy][name] = txt['value']
         return text
 
-        cmd = """SELECT m.parent_object_id, d.property_id, t.value, t.data_id FROM membership m
-                 INNER JOIN data d ON m.membership_id=d.membership_id
-                 INNER JOIN text t ON t.data_id=d.data_id
-                 WHERE child_object_id=?"""
-        cur.execute(cmd, [self.meta['object_id']])
-        for (parent_object_id, property_id, value, data_id) in list(cur.fetchall()):
-            parent = self.coad.get_by_object_id(parent_object_id)
-            name = self.get_class().valid_properties[parent.get_class().meta['name']][str(property_id)]['name']
-            # Check for tags
-            tag_set = False
-            if 'tag' in self.coad.table_list:
-                cmd = "SELECT object_id FROM tag WHERE data_id=?"
-                #tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
-                cur.execute(cmd, [data_id])
-                for (tag_obj_id,) in cur.fetchall():
-                    #print("  tag: %s"%self.coad.get_by_object_id(tag_obj_id).hierarchy)
-                    #tag_obj_hier = self.coad.get_by_object_id(tag_obj_id).hierarchy
-                    tag_obj_hier = self.coad.get_hierarchy_for_object_id(tag_obj_id)
-                    if tag_obj_hier not in text:
-                        text[tag_obj_hier] = {}
-                    text[tag_obj_hier][name] = value
-                    tag_set = True
-            if not tag_set:
-                #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
-                if parent.hierarchy not in text:
-                    text[parent.hierarchy] = {}
-                text[parent.hierarchy][name] = value
-        return text
+    def set_text(self, name, value, tag='System.System', class_id='Data File'):
+        '''Set the value of a text item by name
+            Will add new data if no existing text matches the tag.
+            Will NOT add new membership if one doesn't exist.
+            Assumes System.System requires a property set with the default value.
+            Assumes it will use the "Data File" class for its class_id
+
+            Allows setting filenames for certain properties such as Data File
+        '''
+        matches = []
+        properties = self.clsdict.coad.db['property'].find({'name':name})
+        members = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
+        for prop in properties:
+            for mem in members:
+                if prop['collection_id'] == mem['collection_id']:
+                    matches.append((mem['parent_object_id'], mem['membership_id'], prop['property_id']))
+                    break
+        for (parent_object_id, membership_id, property_id) in matches:
+            parent_obj = self.clsdict.coad.get_by_object_id(parent_object_id)
+            # Check if there is already a data for this property
+            existing_data = self.clsdict.coad.db['data'].find_one({'membership_id':membership_id, 'property_id':property_id})
+            if existing_data:
+                data_id = existing_data['data_id']
+            else:
+                default_value = self.clsdict.valid_properties[parent_obj.meta['name']][str(property_id)]['default_value']
+                # Add new data
+                data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
+                last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
+                last_uid = max(map(int, [x['uid'] for x in data_id_list]))
+                self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id+1),
+                                         'uid':str(last_uid+1),
+                                         'membership_id':membership_id,
+                                         'value':default_value,
+                                         'property_id':property_id})
+                data_id = last_data_id+1
+            # Check for existing text
+            existing_text = self.clsdict.coad.db['text'].find({'data_id':str(data_id)})
+            if existing_text.count() > 0:
+                self.clsdict.coad.db['text'].update({'data_id':str(data_id)},
+                                                    {'$set': {'value': value}},
+                                                    multi=True)
+            else:
+                # Get class_id
+                text_cls = self.clsdict.coad.db['class'].find_one( {'$or': [{'class_id':class_id},{'name':class_id}]})
+                self.clsdict.coad.db['text'].insert({'data_id':str(data_id),
+                                                     'class_id':text_cls['class_id'],
+                                                     'value':value})
+            # Check if tag != parent_object_id and it's not System.System
+            if tag != 'System.System' and tag != parent_obj.hierarchy:
+                # Check if tag already set for tag's object_id
+                tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+                tags = self.clsdict.coad.db['tag'].find({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
+                print "Looking for tag %s, found %s"%(tag, tags.count())
+                if tags.count() == 0:
+                    self.clsdict.coad.db['tag'].insert({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
+        return
 
     def dump(self, recursion_level=0):
         ''' Print to stdout as much information as possible about object to facilitate debugging
@@ -855,9 +883,33 @@ class ObjectDict(collections.MutableMapping):
         if len(children):
             print(spacing+'    Children (%s):'%len(children))
             for k in children:
-                self.clsdict.coad.get_by_hierarchy(k).dump(recursion_level+1)
+                msg = '        '+k
+                print(spacing + msg)
+                #self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
         else:
             print(spacing+'    No children')
+        # Properties
+        props = self.get_properties()
+        prop_keys = sorted(props)
+        if len(prop_keys):
+            print(spacing+'    Properties:')
+            for pkey in prop_keys:
+                print(spacing+'        '+pkey)
+                for vkey in sorted(props[pkey]):
+                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        else:
+            print(spacing+'    No properties')
+        # Text
+        props = self.get_text()
+        prop_keys = sorted(props)
+        if len(prop_keys):
+            print(spacing+'    Text values:')
+            for pkey in prop_keys:
+                print(spacing+'        '+pkey)
+                for vkey in sorted(props[pkey]):
+                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        else:
+            print(spacing+'    No text values')
 
     def print_object_attrs(self):
         ''' Prints the object's attributes in Class.Object.Attribute=Value format
