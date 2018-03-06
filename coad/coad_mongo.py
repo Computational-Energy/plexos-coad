@@ -2,7 +2,8 @@
 
 This module contains tools for manipulating Plexos data files outside of the
 Plexos UI.  It loads the xml file into a mongo database for further inspection
-and modification.
+and modification.  Mongdb is started on first class instantiation and stopped on
+python exit.
 
 Example:
     from coad_mongo import COAD
@@ -13,13 +14,17 @@ Example:
     coad_new = COAD("master_new.xml")
     print("After set, solver is %s"%coad['Performance']['Gurobi']['SOLVER'])
 """
+import atexit
 import collections
 import os
 import pymongo
-#import sqlite3 as sql
+import subprocess
+import sys
 import uuid
 
 import plexos_mongo
+
+MONGODB_PROC = None
 
 class COAD(collections.MutableMapping):
     '''Edit models, horizons, memberships and object attributes of plexos data.
@@ -31,7 +36,8 @@ class COAD(collections.MutableMapping):
     The class presents a map of class names to ClassDict objects
     '''
 
-    def __init__(self, filename=None, reload=True, host='localhost', port=27017):
+    def __init__(self, filename=None, reload=True, host='localhost', port=27017,
+                 start_mongodb=True):
         '''Initialize the COAD object, populating Classes, Objects and Attributes
 
         Args:
@@ -40,9 +46,22 @@ class COAD(collections.MutableMapping):
             reload - Reload the mongo database from file, defaults to True
             host - Hostname of MongoDB
             port - Port of MongoDB
+            start_mongodb - Attempt to start mongodb, ignoring host and port options
         '''
         if filename is None:
             filename = os.path.join(os.path.abspath(os.path.dirname(__file__)), "master.xml")
+        # Attempt to start mongodb if not already started
+        if start_mongodb and sys.modules[__name__].MONGODB_PROC is None:
+            #sys.modules[__name__].MONGODB_PROC = subprocess.Popen('mongod', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                os.mkdir('mongo_data')
+            except OSError:
+                pass
+            with open('mongod_log.txt', 'w') as mlog:
+                sys.modules[__name__].MONGODB_PROC = subprocess.Popen(['mongod', '--dbpath', 'mongo_data'], stdout=mlog, stderr=mlog)
+            host = 'localhost'
+            port = 27017
+            atexit.register(sys.modules[__name__].MONGODB_PROC.terminate)
         # Check for database in mongo.
         dbname = os.path.basename(filename).translate(None, '.$')
         if not reload:
@@ -57,22 +76,12 @@ class COAD(collections.MutableMapping):
             if not filename.endswith('.xml'):
                 raise Exception('Invalid filename suffix')
             self.db = plexos_mongo.load(filename, host=host, port=port)
-        #self.store = dict()
-        #self.populate_store()
+        # TODO: This is incorrect for properties that have duplicate names, move into class/collection
         # Add map of property ids to property names
         all_properties = self.db['property'].find({}, {'name':1, 'property_id':1, '_id':0})
         self.valid_properties = dict()
         for p in all_properties:
             self.valid_properties[p['property_id']] = p['name']
-
-    def populate_store(self):
-        ''' Populate this map with class names and pointers to their classDict
-            objects.
-        '''
-        #classes = self.db['class'].find({})
-        #for clsdoc in classes:
-        #    self.store[clsdoc['name']] = ClassDict(self, clsdoc)
-
 
     def save(self, filename):
         ''' Write current contents of database to xml
@@ -95,43 +104,44 @@ class COAD(collections.MutableMapping):
             object has object_id, class_id, object_name
             class has class_id,class_name
         '''
-        #with sql.connect(self.dbfilename) as con:
-        cur = self.dbcon.cursor()
-        sel = '''SELECT c.name as class_name, o.name as objname,
-                 a.name as attribute_name, ad.value as attribute_value
-                 FROM object o
-                 INNER JOIN class c ON c.class_id=o.class_id
-                 INNER JOIN attribute_data ad ON ad.object_id = o.object_id
-                 INNER JOIN attribute a ON a.attribute_id=ad.attribute_id
-                 WHERE o.name=?'''
-        cur.execute(sel, [objname])
+        objects = self.db['object'].find({'name':objname}, {'class_id':1, 'object_id':1, '_id':0})
+        for obj in objects:
+            clsdict =  self.db['object'].find_one({'class_id': obj['class_id']}, {'name':1, '_id':0})
+            attributes = self.db['attribute'].find({'class_id':obj['class_id']}, {'name':1, 'attribute_id':1, '_id':0})
+            for att in attributes:
+                att_data = self.db['attribute_data'].find_one({'attribute_id':att['attribute_id'], 'object_id':obj['object_id']}, {'value':1, '_id':0})
+                if att_data is not None:
+                    print('%s.%s.%s=%s'%(clsdict['name'], objname, att['name'], att_data['value']))
 
-        attributes = cur.fetchall()
-        for att in attributes:
-            print('%s.%s.%s=%s'%tuple(att))
-
-    def get(self, identifier, default=None):
-        ''' Return the attribute value for an object
-            class_name.object_name.attribute_name=attribute value
-
-            attribute_data table has object_id, attribute_id, value
-            attribute has attribute_name,
-            object has object_id, class_id, object_name
-            class has class_id,class_name
-
-            TODO: Use default as inherited from MutableMapping
+    def get_by_hierarchy(self, identifier, default=None):
+        ''' Return the ClassDict, ObjectDict or attribute value for an object
+            class_name.object_name.attribute_name = attribute value
+            or
+            class_name|object_name|attribute_name = attribute value
+            if one of the names has a . in it
         '''
-        try:
-            (class_name, object_name, attribute_name) = identifier.split('.')
-        except:
-            raise Exception('''Invalid identifier, must take the form of:
-                class name.object name.attribute name''')
-        return self[class_name][object_name][attribute_name]
+        hier = identifier.split('.')
+        if hier[0] not in self:
+            hier = identifier.split('|')
+        if hier[0] not in self:
+            raise Exception("No such class '%s'"%hier[0])
+        retobj = self[hier[0]]
+        if len(hier) > 1:
+            if hier[1] not in retobj:
+                raise Exception("No such object '%s' in %s"%(hier[1], hier[0]))
+            retobj = retobj[hier[1]]
+            if len(hier) > 2:
+                if hier[2] not in retobj:
+                    raise Exception("No such attribute '%s' in %s"%(hier[2], hier[1]))
+                retobj = retobj[hier[2]]
+        return retobj
 
     def set(self, identifier, value):
         ''' Sets the attribute value for an object
             class_name.object_name.attribute_name=attribute value
             Will create a new row in attribute_data if no existing value is found
+
+            TODO: Don't overwrite the MutableMapping set
             '''
         try:
             (class_name, object_name, attribute_name) = identifier.split('.')
@@ -139,6 +149,22 @@ class COAD(collections.MutableMapping):
             raise Exception('''Invalid identifier, must take the form of:
                 class name.object name.attribute name''')
         self[class_name][object_name][attribute_name] = value
+
+    def get_hierarchy_for_object_id(self, object_id):
+        ''' Return a hierarchy based on object_id.  Added to remove instantiation
+        of various objects during property lookups
+        '''
+        objmeta = self.db['object'].find_one({'object_id':object_id})
+        clsmeta = self.db['class'].find_one({'class_id':objmeta['class_id']})
+        return "%s.%s"%(clsmeta['name'], objmeta['name'])
+
+    def get_by_object_id(self, object_id):
+        ''' Return an ObjectDict based on object_id
+        '''
+        objmeta = self.db['object'].find_one({'object_id':object_id})
+        clsmeta = self.db['class'].find_one({'class_id':objmeta['class_id']})
+        objcls = ClassDict(self, clsmeta)
+        return ObjectDict(objcls, objmeta)
 
     def diff(self, other_coad):
         ''' Print a difference between two coad objects
@@ -161,91 +187,22 @@ class COAD(collections.MutableMapping):
                 for diff_msg in cls_diff:
                     print("  %s"%diff_msg)
 
-    def diff_db(self, otherfilename):
-        ''' Print a difference between two sqlite database files
-                For each table in each db:
-                    Report differences in schema
-                    Report row differences
-        '''
-        def diff_table(table_name, cur1, cur2):
-            ''' Print a difference between two tables
-                First list schema differences
-                Then data differences
-
-                Assumes cursors have been created using sql.Row row_factory
-            '''
-            cur1.execute("SELECT * FROM '%s' ORDER BY 1,2"%(table_name))
-            schema1 = [k[0] for k in cur1.description]
-            data1 = cur1.fetchall()
-            # Test the table on two - make sure all cols in one are still available
-            cur2.execute("SELECT * FROM '%s' LIMIT 1"%(table_name))
-            schema2 = [k[0] for k in cur2.description]
-            if len(set(schema1) - set(schema2)) > 0:
-                print("Table %s has different schemas"%table_name)
-                return
-            sel = "SELECT %s FROM '%s' ORDER BY 1,2"
-            cur2.execute(sel%(','.join(["["+k+"]" for k in schema1]), table_name))
-            data2 = cur2.fetchall()
-            # At this point both data sets should be in the same order
-            # For now use set functions to display differences
-            in1 = set(data1) - set(data2)
-            in2 = set(data2) - set(data1)
-            if len(in1) > 0 or len(in2) > 0:
-                print("Differences in table %s"%table_name)
-                row_format = "{:>15}"*(len(schema1))
-                if len(in1) > 0:
-                    print("Only in original file:")
-                    print(row_format.format(*schema1))
-                    print('-'*15*len(schema1))
-                    for i in in1:
-                        print(row_format.format(*i))
-                if len(in2) > 0:
-                    print("Only in new file:")
-                    print(row_format.format(*schema1))
-                    print('-' * 15 * len(schema1))
-                    for i in in2:
-                        print(row_format.format(*i))
-        if not otherfilename.endswith('.db'):
-            raise Exception('Invalid filename extention for ' + otherfilename)
-        self.dbcon.row_factory = sql.Row
-        cur = self.dbcon.cursor()
-        cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        tables = [s[0] for s in cur.fetchall()]
-        with sql.connect(otherfilename) as other_con:
-            other_con.row_factory = sql.Row
-            other_cur = other_con.cursor()
-            other_cur.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-            other_tables = [s[0] for s in other_cur.fetchall()]
-            # Tables in both dbs
-            for tbl in set(tables) | set(other_tables):
-                diff_table(tbl, cur, other_cur)
-            # Tables only in first db
-            for tbl in set(tables) - set(other_tables):
-                print('Tables removed from first file')
-            # Tables only in second db
-            for tbl in set(other_tables) - set(tables):
-                print('Tables added to first file')
-
     def __setitem__(self, key, value):
         raise Exception('Operation not supported yet')
 
     def __getitem__(self, key):
         meta = self.db['class'].find_one({'name':key})
         return ClassDict(self, meta)
-        #return self.store[key]
 
     def __delitem__(self, key):
         raise Exception('Operation not supported yet')
-        #del self.store[key]
 
     def __iter__(self):
         cls_dicts = self.db['class'].find({},{'name':1, '_id':0})
         return iter([c['name'] for c in cls_dicts])
-        #return iter(self.store)
 
     def __len__(self):
         return self.coad.db['class'].count()
-        #return len(self.store)
 
 class ClassDict(collections.MutableMapping):
     '''
@@ -255,7 +212,7 @@ class ClassDict(collections.MutableMapping):
         Uses Abstract Base Classes to extend a dictionary
     '''
     def __init__(self, coad, meta):
-        self.store = dict()
+        #self.store = dict()
         self.coad = coad
         self.meta = meta
         # TODO: Add more info to valid attributes
@@ -263,13 +220,38 @@ class ClassDict(collections.MutableMapping):
         self.valid_attributes = dict()
         for att in attributes:
             self.valid_attributes[att['attribute_id']] = att['name']
+        # TODO: Duplicate names ever happen?
         self.named_valid_attributes = {v: k for k, v in self.valid_attributes.items()}
-        objects = self.coad.db['object'].find({'class_id':self.meta['class_id']})
-        for objdoc in objects:
-            if objdoc['name'] in self.store:
-                msg = 'Duplicate name of object %s in class %s'
-                raise Exception(msg%(obj['name'], self.meta['name']))
-            self.store[objdoc['name']] = ObjectDict(self, objdoc)
+        #objects = self.coad.db['object'].find({'class_id':self.meta['class_id']})
+        #for objdoc in objects:
+        #    if objdoc['name'] in self.store:
+        #        msg = 'Duplicate name of object %s in class %s'
+        #        raise Exception(msg%(objdoc['name'], self.meta['name']))
+        #    self.store[objdoc['name']] = ObjectDict(self, objdoc)
+        # Collections have the property id allowed for class
+        self.valid_properties = dict()
+        collections = self.coad.db['collection'].find({'child_class_id':self.meta['class_id']})
+        for coll in collections:
+            parent = coll['parent_class_id']
+            parent_meta = self.coad.db['class'].find_one({'class_id':parent})
+            props = self.coad.db['property'].find({'collection_id': coll['collection_id']})
+            for prop in props:
+                if parent_meta['name'] not in self.valid_properties:
+                    self.valid_properties[parent_meta['name']] = {}
+                if prop['property_id'] in self.valid_properties:
+                    raise Exception("Duplicate property %s in class %s"%(prop['name'], self.meta['name']))
+                self.valid_properties[parent_meta['name']][prop['property_id']] = prop
+        #all_properties = self.db['property'].find({}, {'name':1, 'property_id':1, '_id':0})
+        #self.valid_properties = dict()
+        #for p in all_properties:
+        #    self.valid_properties[p['property_id']] = p['name']
+        self.valid_properties_by_name = {}
+        for p, pv in self.valid_properties.iteritems():
+            self.valid_properties_by_name[p] = {}
+            for k, v in pv.iteritems():
+                if v['name'] in  self.valid_properties_by_name:
+                    raise Exception("Duplicate property %s in class %s"%(v['name'], self.meta['name']))
+                self.valid_properties_by_name[p][v['name']] = k
 
     def __setitem__(self, key, value):
         ''' Allow setting keys to an objectdict '''
@@ -282,7 +264,6 @@ class ClassDict(collections.MutableMapping):
     def __getitem__(self, key):
         meta = self.coad.db['object'].find_one({'name':key, 'class_id':self.meta['class_id']})
         return ObjectDict(self, meta)
-        #eturn self.store[key]
 
     def __delitem__(self, key):
         # To remove this object:
@@ -307,11 +288,9 @@ class ClassDict(collections.MutableMapping):
             def next(self):
                 return ObjectDict(self.cls, self.all_objects.next())
         return ObjIterable(self)
-        #return iter(self.store)
 
     def __len__(self):
         return self.coad.db['object'].find({'class_id':self.cls.meta['class_id']}).count()
-        #return len(self.store)
 
     def diff(self, other_class):
         ''' Return a list of difference between two ClassDict objects
@@ -349,6 +328,33 @@ class ClassDict(collections.MutableMapping):
             raise Exception(msg%(self.meta['class_id'], child_class_id))
         return collection['collection_id']
 
+    def get_categories(self):
+        ''' Return a list of category dicts available for objects of this class, ordered
+        by rank.
+        '''
+        categories_cur = self.coad.db['category'].find({'class_id':self.meta['class_id']})
+        # Everything is a string in mongo, so need to sort by function
+        categories = sorted(categories_cur, key=lambda c: int(c['rank']))
+        return categories
+
+    def add_category(self, name):
+        ''' Add a new category to this class, not allowing duplicated names in class
+        '''
+        # TODO: Implement counters for all important _id attributes
+        cat_id_list = self.coad.db['category'].find( {}, { '_id': 0, 'category_id':1 } )
+        last_cat_id = max(map(int, [x['category_id'] for x in cat_id_list]))
+        categories_cur = self.coad.db['category'].find({'class_id':self.meta['class_id']})
+        lastrank = 0
+        for cat in categories_cur:
+            if name == cat['name']:
+                raise Exception("Category %s already exists in %s"%(name, self.meta['name']))
+            lastrank = max(lastrank, int(cat['rank']))
+        newcat = {'name':name, 'rank':str(lastrank+1), 'category_id':str(last_cat_id+1), 'class_id':self.meta['class_id']}
+        self.coad.db['category'].insert(newcat)
+
+    # TODO: Any need for remove category?  Would have to change objects that use
+    # the deleted category to the default
+
 
 class ObjectDict(collections.MutableMapping):
     ''' Overwrites the setitem method to allow updates to data and dict
@@ -361,46 +367,31 @@ class ObjectDict(collections.MutableMapping):
         Uses Abstract Base Classes to extend a dictionary
     '''
     def __init__(self, clsdict, meta):
-        self.store = dict()
+        #self.store = dict()
         self.clsdict = clsdict
         self.meta = meta
-        #attdata = self.clsdict.coad.db['attribute_data'].find({'object_id':self.meta['object_id']})
-        #for att in attdata:
-        #    att_name = self.clsdict.valid_attributes[att['attribute_id']]
-        #    self.store[att_name] = att['value']
-        self._no_update = False
+        self.hierarchy = '%s.%s'%(self.clsdict.meta['name'], self.meta['name'])
 
     def __setitem__(self, key, value):
-        if self._no_update:
-            self.store[key] = value
-            return
-        # TODO: Allow for mongo
-        return
-        # TODO: Make sure value is valid
-        # Make sure this attribute is allowed in this class
-        if key not in self.valid_attributes:
+        if key not in self.clsdict.named_valid_attributes:
             msg = '%s is not a valid attribute of object %s, valid attributes:%s'
-            raise Exception(msg%(key, self.meta['name'], self.valid_attributes.keys()))
-        cur = self.coad.dbcon.cursor()
-        cmd = "UPDATE attribute_data SET value=? WHERE object_id=? and attribute_id=?"
-        vls = [value, self.meta['object_id'], self.valid_attributes[key]['attribute_id']]
-        cur.execute(cmd, vls)
-        if cur.rowcount == 0:
-            # Did not work, add a new row
-            cmd = "INSERT INTO attribute_data (object_id,attribute_id,value) VALUES (?,?,?)"
-            vls = [self.meta['object_id'], self.valid_attributes[key]['attribute_id'], value]
-            cur.execute(cmd, vls)
-        self.coad.dbcon.commit()
-        self.store[key] = value
+            raise Exception(msg%(key, self.meta['name'], self.clsdict.named_valid_attributes.keys()))
+        att_id = self.clsdict.named_valid_attributes[key]
+        self.clsdict.coad.db['attribute_data'].update({'object_id':self.meta['object_id'], 'attribute_id':att_id},
+                                                      {'$set': {'value': value}}, upsert=True)
 
     def __getitem__(self, key):
         att_id = self.clsdict.named_valid_attributes[key]
         attdata = self.clsdict.coad.db['attribute_data'].find_one({'object_id':self.meta['object_id'], 'attribute_id':att_id})
         return attdata['value']
-        #return self.store[key]
 
     def __delitem__(self, key):
         # TODO: Code for mongo
+        if key not in self.clsdict.named_valid_attributes:
+            msg = '%s is not a valid attribute of object %s, valid attributes:%s'
+            raise Exception(msg%(key, self.meta['name'], self.clsdict.named_valid_attributes.keys()))
+        att_id = self.clsdict.named_valid_attributes[key]
+        self.clsdict.coad.db['attribute_data'].remove({'object_id':self.meta['object_id'], 'attribute_id':att_id}, True)
         return
         cur = self.coad.dbcon.cursor()
         cmd = "DELETE FROM attribute_data WHERE object_id=? AND attribute_id=?"
@@ -431,45 +422,56 @@ class ObjectDict(collections.MutableMapping):
             attribute_data entries as well.
             # TODO: Enforce unique naming
         '''
-        # TODO: update for mongo
-        return
-        cols = []
-        vals = []
-        for (k, val) in self.meta.items():
-            if k != 'object_id':
-                cols.append(k)
-                if k == 'name':
-                    if newname is None:
-                        val = self.meta['name'] + '-' + str(uuid.uuid4())
-                    else:
-                        val = newname
-                vals.append(val)
-        cur = self.coad.dbcon.cursor()
-        fill = ','.join('?'*len(cols))
-        cmd = "INSERT INTO object (%s) VALUES (%s)"%(','.join(["'%s'"%c for c in cols]), fill)
-        cur.execute(cmd, vals)
-        self.coad.dbcon.commit()
-        new_obj_meta = dict(zip(cols, vals))
-        new_obj_meta['object_id'] = cur.lastrowid
-        new_obj_dict = ObjectDict(self.coad, new_obj_meta)
-        for (k, val) in self.store.items():
-            new_obj_dict[k] = val
-        # Add this objectdict to classdict
-        new_obj_dict.get_class()[new_obj_meta['name']] = new_obj_dict
-        # Create new the membership information
-        # TODO: Is it possible to have orphans by not checking child_object_id?
-        cur.execute("SELECT * FROM membership WHERE parent_object_id=?",
-                    [self.meta['object_id']])
-        cols = [d[0] for d in cur.description]
-        parent_object_id_idx = cols.index('parent_object_id')
-        for row in cur.fetchall():
-            newrow = list(row)
-            newrow[parent_object_id_idx] = new_obj_meta['object_id']
-            cmd = "INSERT INTO membership (%s) VALUES (%s)"
-            vls = (','.join(["'"+c+"'" for c in cols[1:]]), ','.join(['?' for d in newrow[1:]]))
-            cur.execute(cmd%vls, newrow[1:])
-        self.coad.dbcon.commit()
-        return new_obj_dict
+        obj_id_list = self.clsdict.coad.db['object'].find( {}, { '_id': 0, 'object_id':1 } )
+        last_obj_id = max(map(int, [x['object_id'] for x in obj_id_list]))
+        new_object_id = last_obj_id + 1;
+        new_obj = self.clsdict.coad.db['object'].find_one({'object_id':self.meta['object_id']}, {'_id':0})
+        new_obj['object_id'] = str(new_object_id)
+        if newname is None:
+            new_obj['name'] = new_obj['name'] + '-' + str(uuid.uuid4())
+        else:
+            new_obj['name'] = newname
+        # Verify there is no existing object of this class with this name
+        exist_obj = self.clsdict.coad.db['object'].find_one({'class_id':self.meta['class_id'], 'name':new_obj['name']}, {'_id':0})
+        if exist_obj:
+            raise Exception("Duplicate name '%s' for same class"%new_obj['name'])
+        # GUID has been put in some versions of Plexos
+        if 'GUID' in self.meta:
+            new_obj['GUID'] = str(uuid.uuid4())
+        self.clsdict.coad.db['object'].insert_one(new_obj)
+        # Copy attributes
+        new_atts = []
+        att_list = self.clsdict.coad.db['attribute_data'].find( {'object_id':self.meta['object_id']}, { '_id': 0 } )
+        for att in att_list:
+            att['object_id'] = str(new_object_id)
+            new_atts.append(att)
+        if len(new_atts) > 0:
+            self.clsdict.coad.db['attribute_data'].insert_many(new_atts)
+        # Get highest membership_id
+        # TODO: Something bad may happen if object has no memberships
+        mship_id_list = self.clsdict.coad.db['membership'].find( {}, { '_id': 0, 'membership_id':1 } )
+        last_mship_id = max(map(int, [x['membership_id'] for x in mship_id_list]))
+        new_mship_id = last_mship_id + 1;
+        # Copy memberships where this is the parent
+        new_mships = []
+        mships = self.clsdict.coad.db['membership'].find({'parent_object_id': self.meta['object_id']}, { '_id': 0 })
+        for mship in mships:
+            mship['parent_object_id'] = str(new_object_id)
+            mship['membership_id'] = str(new_mship_id)
+            new_mship_id += 1
+            new_mships.append(mship)
+        # Copy memberships where this is the child
+        mships = self.clsdict.coad.db['membership'].find({'child_object_id': self.meta['object_id']}, { '_id': 0 })
+        for mship in mships:
+            mship['child_object_id'] = str(new_object_id)
+            mship['membership_id'] = str(new_mship_id)
+            new_mship_id += 1
+            new_mships.append(mship)
+        # TODO: Copy data from child memberships
+        #
+        if len(new_mships) > 0:
+            self.clsdict.coad.db['membership'].insert_many(new_mships)
+        return self.clsdict[new_obj['name']]
 
     def set_children(self, children, replace=True):
         ''' Set the children of this object.    If replace is true, it will
@@ -478,36 +480,45 @@ class ObjectDict(collections.MutableMapping):
         Can handle either a single ObjectDict or list of ObjectDicts
         TODO: Validate that object is allowed to have the children passed in
         '''
-        # TODO: update for mongo
-        return
-        children_by_class = {}
+        # Convert objdict to list of objdict
         if isinstance(children, ObjectDict):
-            class_id = children.get_class().meta['class_id']
-            children_by_class[class_id] = [children]
-        else:
-            for obj in children:
-                if not isinstance(obj, ObjectDict):
-                    msg = "Children must be of type ObjectDict, passed item was %s"
-                    raise Exception(msg%(type(obj)))
-                class_id = obj.get_class().meta['class_id']
-                if class_id not in children_by_class.keys():
-                    children_by_class[class_id] = [obj]
-                else:
-                    children_by_class[class_id].append(obj)
-        cur = self.coad.dbcon.cursor()
-        for (class_id, objectdicts) in children_by_class.items():
+            children = [children]
+        # Get last membership id
+        mship_id_list = self.clsdict.coad.db['membership'].find( {}, { '_id': 0, 'membership_id':1 } )
+        last_mship_id = max(map(int, [x['membership_id'] for x in mship_id_list]))
+        new_mship_id = last_mship_id + 1;
+        # Add all memberships
+        new_mships = []
+        for child in children:
+            # Remove all memberships that match child_class_id and parent_object_id
+            child_class_id = child.clsdict.meta['class_id']
             if replace:
-                cmd = "DELETE FROM membership WHERE parent_object_id=? AND child_class_id=?"
-                cur.execute(cmd, [self.meta['object_id'], class_id])
-            collection_id = self.clsdict.get_collection_id(class_id)
-            for obj in objectdicts:
-                cmd = '''INSERT INTO membership (parent_class_id, parent_object_id,
-                         collection_id, child_class_id, child_object_id)
-                         VALUES (?,?,?,?,?)'''
-                vls = [self.meta['class_id'], self.meta['object_id'], collection_id,
-                       class_id, obj.meta['object_id']]
-                cur.execute(cmd, vls)
-        self.coad.dbcon.commit()
+                self.clsdict.coad.db['membership'].remove({'child_class_id':child_class_id,
+                                                           'parent_object_id':self.meta['object_id']})
+            new_mship = {'membership_id':str(new_mship_id),
+                         'child_class_id':child_class_id,
+                         'child_object_id':child.meta['object_id'],
+                         'parent_class_id':self.clsdict.meta['class_id'],
+                         'parent_object_id':self.meta['object_id'],
+                         'collection_id':self.clsdict.get_collection_id(child_class_id)}
+            new_mships.append(new_mship)
+            new_mship_id += 1
+        if len(new_mships) > 0:
+            self.clsdict.coad.db['membership'].insert_many(new_mships)
+        return
+
+    def get_parents(self, class_name=None):
+        ''' Return a list of all parents that match the class name.  If class
+        name is None, return all parents
+        '''
+        parents = []
+        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
+        for member in memberships:
+            m_class = self.clsdict.coad.db['class'].find_one({'class_id':member['parent_class_id']},{'name':1})
+            if class_name is None or m_class['name'] == class_name:
+                m_obj = self.clsdict.coad.db['object'].find_one({'object_id':member['parent_object_id']},{'name':1})
+                parents.append(self.clsdict.coad[m_class['name']][m_obj['name']])
+        return parents
 
     def get_children(self, class_name=None):
         ''' Return a list of all children that match the class name.  If class
@@ -522,82 +533,326 @@ class ObjectDict(collections.MutableMapping):
                 children.append(self.clsdict.coad[m_class['name']][m_obj['name']])
         return children
 
+    def get_category(self):
+        ''' Return the name of this object's category
+        '''
+        category = self.clsdict.coad.db['category'].find_one({'category_id':self.meta['category_id']})
+        return category['name']
+
+    def set_category(self, name):
+        ''' Set this object's category to name
+        '''
+        available_cats = self.clsdict.get_categories()
+        for cat in available_cats:
+            if cat['name'] == name:
+                self.clsdict.coad.db['object'].update({"object_id":self.meta['object_id']}, {'$set': {'category_id': cat['category_id']}})
+                return
+        raise Exception("No such category %s for class %s"%(name, self.clsdict.meta['name']))
+
     def get_class(self):
         ''' Return the ClassDict that contains this object
         '''
         return self.clsdict
 
     def get_properties(self):
-        '''Return a dict of all properties set for this object.  Done with mongo queries
+        '''Return a dict of all properties set for this object along with any
+        properties tagged to another object.
+
+        Tagged properties apply only to tag object
+
+        Returns:
+            dict of class/object_hierarchy=dict of property_name=value
         '''
         props = {}
-        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1})
+        memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
         for member in memberships:
+            parent = self.clsdict.coad.get_by_object_id(member['parent_object_id'])
             data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
             for d in data:
-                name = self.clsdict.coad.valid_properties[d['property_id']]
-                value = d['value']
-                if name not in props:
-                    props[name] = value
+                # Can parents and tags coexist? Yes!  It appears the data_id
+                # shown in the tag is the overwritten value of the default.
+                # Check for tag, which is modified data for a specific data_id
+                tag = self.clsdict.coad.db['tag'].find_one({'data_id':d['data_id']})
+                if tag is not None:
+                    # TODO: Ever multiple tags for the same data_id?
+                    tag_obj = self.clsdict.coad.get_by_object_id(tag['object_id'])
+                    #raise Exception("Found a tag! parent %s, tag %s"%(parent.hierarchy, tag_obj.hierarchy))
+                    tag_hier = tag_obj.hierarchy
                 else:
-                    if not isinstance(props[name], list):
-                        props[name] = [props[name], value]
+                    tag_hier = parent.hierarchy
+                name = self.clsdict.valid_properties[parent.clsdict.meta['name']][d['property_id']]['name']
+                # Test for input mask, substituting if needed
+                prop = self.clsdict.coad.db['property'].find_one({'property_id':d['property_id']})
+                valdict = {}
+                if 'input_mask' in prop:
+                    mask = prop['input_mask'].split(";")
+                    it = iter(mask)
+                    for k in it:
+                        valdict[str(k)] = next(it).strip("\"")
+                if d['value'] in valdict:
+                    value = valdict[d['value']]
+                else:
+                    value = d['value']
+                if tag_hier not in props:
+                    props[tag_hier] = {}
+                if name not in props[tag_hier]:
+                    props[tag_hier][name] = value
+                else:
+                    if not isinstance(props[tag_hier][name], list):
+                        props[tag_hier][name] = [props[tag_hier][name], value]
                     else:
-                        props[name].append(value)
+                        props[tag_hier][name].append(value)
         return props
 
-    def get_property(self, name):
+    def get_property(self, name, tag='System.System'):
         '''Return the value of a property by name
-        '''
-        props = self.get_properties()
-        if name not in props:
-            raise Exception('Object has no property "%s" set'%name)
-        return props[name]
 
-    def set_property(self, name, value):
-        '''Set the value of a property by name
+        Args:
+            tag - ObjectDict or hierarchy string of data tag
+
+        Returns: string for single value, list for multiple values
         '''
-        #TODO: Handle arrays of values
-        cur = self.coad.dbcon.cursor()
-        cur.execute("""SELECT d.data_id FROM data d
-            INNER JOIN property p ON p.property_id = d.property_id
-            WHERE p.name=?
-            AND membership_id IN
-            (SELECT membership_id FROM membership WHERE child_object_id=?)""",
-                    [name, self.meta['object_id']])
-        match_data = cur.fetchall()
-        if isinstance(value, list):
-            if len(value) != len(match_data):
-                msg = 'Property "%s" expects %s values, %s provided'
-                raise Exception(msg%(name, len(match_data), len(value)))
-            cur.executemany('UPDATE data SET value=? WHERE data_id=?',
-                            zip(value, [x[0] for x in match_data]))
-        elif len(match_data) != 1:
-            raise Exception('Unable to find single property to modify for %s'%name)
+        if isinstance(tag, ObjectDict):
+            tag_obj = tag
         else:
-            data_id = match_data[0][0]
-            cur.execute("""UPDATE data SET value=? WHERE data_id=?""", [value, data_id])
-            if cur.rowcount != 1:
-                raise Exception('Unable to set property %s, %s rows affected'%(name, cur.rowcount))
-        self.coad.dbcon.commit()
+            tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        tag_clsname = tag_obj.clsdict.meta['name']
+        # Reverse lookup of class.valid_properties to get property_id
+        if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
+            raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
+        prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
+        # Tag object should always be ObjectDict
+        tag_obj_id = tag_obj.meta['object_id']
+        member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
+        if member is None:
+            raise Exception("Unable to find membership for %s in %s"%(tag.hierarchy, self.hierarchy))
+        # Test for input mask, substituting if needed
+        prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+        valdict = {}
+        if 'input_mask' in prop:
+            mask = prop['input_mask'].split(";")
+            it = iter(mask)
+            for k in it:
+                valdict[str(k)] = next(it).strip("\"")
+        def valmap(val):
+            if val in valdict:
+                return valdict[val]
+            else:
+                return val
+        all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+        data_count = all_data.count()
+        mapped_data = [valmap(d['value']) for d in all_data]
+        if data_count == 0:
+            raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+        elif data_count == 1:
+            return mapped_data[0]
+        else:
+            return mapped_data
+
+    def set_property(self, name, value, tag='System.System'):
+        '''Set the value of a property by name.
+        Limited to modifying existing values.  Will not add new data.
+        '''
+        if isinstance(value, list):
+            raise Exception("Overwriting list of data not supported yet")
+        tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        tag_clsname = tag_obj.clsdict.meta['name']
+        # Commonly used method for converting human value to stored value
+        def get_mask_value(prop, value):
+            '''Using the property input_mask attribute, map value to a valid
+            value and return it'''
+            valdict = {}
+            if 'input_mask' in prop:
+                vv = []
+                mask = prop['input_mask'].split(";")
+                it = iter(mask)
+                for k in it:
+                    mval = next(it).strip("\"")
+                    if mval == value:
+                        return k
+                    vv.append(mval)
+                raise Exception("Value '%s' not in property's input_mask.  Valid values are:\n%s\n"%(value,'\n'.join(vv)))
+            else:
+                return value
+        # If the tagged class doesn't have the property as valid, it's set as a
+        # tag
+        if tag_clsname not in self.clsdict.valid_properties_by_name:
+            # Modify if value is already set
+            possible_tags = self.clsdict.coad.db['tag'].find({'object_id':tag_obj.meta['object_id']})
+            for ptag in possible_tags:
+                # Get property name, see if it matches name
+                ptag_data = self.clsdict.coad.db['data'].find_one({'data_id':ptag['data_id']})
+                ptag_prop = self.clsdict.coad.db['property'].find_one({'property_id':ptag_data['property_id']})
+                if ptag_prop['name'] == name:
+                    # If it does, see if the membership matches this object
+                    ptag_member = self.clsdict.coad.db['membership'].find_one({'membership_id':ptag_data['membership_id']})
+                    # If it matches, set the value
+                    if ptag_member['child_object_id'] == self.meta['object_id']:
+                        # Get the masked value before is_dynamic is updated
+                        m_value = get_mask_value(ptag_prop, value)
+                        # Make sure property has dynamic set to true
+                        if ptag_prop['is_dynamic'] != 'true':
+                            self.clsdict.coad.db['property'].update(ptag_prop, {'$set': {'is_dynamic': 'true'}})
+                        self.clsdict.coad.db['data'].update(ptag_data, {'$set': {'value': m_value}})
+                        return
+            # Add new tag and data here
+            prop_id = self.clsdict.valid_properties_by_name['System'][name]
+            prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+            # Get the masked value before is_dynamic is updated
+            m_value = get_mask_value(prop, value)
+            # Make sure is_dynamic is set to true
+            if prop['is_dynamic'] != 'true':
+                self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true'}})
+            # Add new data
+            data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
+            last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
+            last_uid = max(map(int, [x['uid'] for x in data_id_list]))
+            sys_obj = self.clsdict.coad.get_by_hierarchy('System.System')
+            member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':sys_obj.meta['object_id']}, {'membership_id':1})
+            self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id+1),
+                                         'uid':str(last_uid+1),
+                                         'membership_id':member['membership_id'],
+                                         'value':m_value,
+                                         'property_id':prop_id})
+            # Add new tag
+            self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id+1),
+                                        'object_id':tag_obj.meta['object_id']})
+        else:
+            # Reverse lookup of class.valid_properties to get property_id
+            if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
+                raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
+            prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
+            prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
+            # Tag object should always be ObjectDict
+            tag_obj_id = tag_obj.meta['object_id']
+            member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
+            if member is None:
+                raise Exception("Unable to find membership for %s in %s"%(tag, self.meta['name']))
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+            data_count = all_data.count()
+            if data_count == 0:
+                raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+            elif data_count == 1:
+                # Can replace this data
+                data = all_data.next()
+                self.clsdict.coad.db['data'].update(data, {'$set': {'value': get_mask_value(prop, value)}})
+            else:
+                raise Exception('Overwriting list of data not supported yet')
 
     def set_properties(self, new_dict):
-        '''Set all the propery values present in dict
+        '''NOT IMPLEMENTED WITH NEW PROPERTY INFO
+        Set all the propery values present in dict
 
             NOTE: This is not transactional.  A failure may leave some values set,
             others not set.
         '''
+        raise Exception('Operation not implemented')
         for name, value in new_dict.iteritems():
             self.set_property(name, value)
+
+    def get_text(self):
+        '''Return a dict of all text set for this object along with any
+        text tagged to another object.
+
+        Returns:
+            dict of class/object_hierarchy=dict of text property name=value
+        '''
+        #cur = self.coad.dbcon.cursor()
+        text = {}
+        # Sometimes there is no data or text table
+        if 'data' not in self.clsdict.coad.db.collection_names() or 'text' not in self.clsdict.coad.db.collection_names():
+            return text
+        members = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
+        for mem in members:
+            print("Member is %s"% mem)
+            parent = self.clsdict.coad.get_by_object_id(mem['parent_object_id'])
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':mem['membership_id']})
+            for dat in all_data:
+                all_text = self.clsdict.coad.db['text'].find({'data_id':dat['data_id']})
+                for txt in all_text:
+                    property_id = dat['property_id']
+                    name = self.clsdict.valid_properties[parent.get_class().meta['name']][str(property_id)]['name']
+                    tag_set = False
+                    if 'tag' in self.clsdict.coad.db.collection_names():
+                        all_tags = self.clsdict.coad.db['tag'].find({'data_id':dat['data_id']})
+                        for tag in all_tags:
+                            tag_obj_hier = self.clsdict.coad.get_hierarchy_for_object_id(tag['object_id'])
+                            if tag_obj_hier not in text:
+                                text[tag_obj_hier] = {}
+                            text[tag_obj_hier][name] = txt['value']
+                            tag_set = True
+                    if not tag_set:
+                        #print("p:%s n:%s v:%s"%(parent.hierarchy, name, value))
+                        if parent.hierarchy not in text:
+                            text[parent.hierarchy] = {}
+                        text[parent.hierarchy][name] = txt['value']
+        return text
+
+    def set_text(self, name, value, tag='System.System', class_id='Data File'):
+        '''Set the value of a text item by name
+            Will add new data if no existing text matches the tag.
+            Will NOT add new membership if one doesn't exist.
+            Assumes System.System requires a property set with the default value.
+            Assumes it will use the "Data File" class for its class_id
+
+            Allows setting filenames for certain properties such as Data File
+        '''
+        matches = []
+        properties = self.clsdict.coad.db['property'].find({'name':name})
+        members = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
+        for prop in properties:
+            for mem in members:
+                if prop['collection_id'] == mem['collection_id']:
+                    matches.append((mem['parent_object_id'], mem['membership_id'], prop['property_id']))
+                    break
+        for (parent_object_id, membership_id, property_id) in matches:
+            parent_obj = self.clsdict.coad.get_by_object_id(parent_object_id)
+            # Check if there is already a data for this property
+            existing_data = self.clsdict.coad.db['data'].find_one({'membership_id':membership_id, 'property_id':property_id})
+            if existing_data:
+                data_id = existing_data['data_id']
+            else:
+                default_value = self.clsdict.valid_properties[parent_obj.meta['name']][str(property_id)]['default_value']
+                # Add new data
+                data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
+                last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
+                last_uid = max(map(int, [x['uid'] for x in data_id_list]))
+                self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id+1),
+                                         'uid':str(last_uid+1),
+                                         'membership_id':membership_id,
+                                         'value':default_value,
+                                         'property_id':property_id})
+                data_id = last_data_id+1
+            # Check for existing text
+            existing_text = self.clsdict.coad.db['text'].find({'data_id':str(data_id)})
+            if existing_text.count() > 0:
+                self.clsdict.coad.db['text'].update({'data_id':str(data_id)},
+                                                    {'$set': {'value': value}},
+                                                    multi=True)
+            else:
+                # Get class_id
+                text_cls = self.clsdict.coad.db['class'].find_one( {'$or': [{'class_id':class_id},{'name':class_id}]})
+                self.clsdict.coad.db['text'].insert({'data_id':str(data_id),
+                                                     'class_id':text_cls['class_id'],
+                                                     'value':value})
+            # Check if tag != parent_object_id and it's not System.System
+            if tag != 'System.System' and tag != parent_obj.hierarchy:
+                # Check if tag already set for tag's object_id
+                tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+                tags = self.clsdict.coad.db['tag'].find({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
+                print "Looking for tag %s, found %s"%(tag, tags.count())
+                if tags.count() == 0:
+                    self.clsdict.coad.db['tag'].insert({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
+        return
 
     def dump(self, recursion_level=0):
         ''' Print to stdout as much information as possible about object to facilitate debugging
         '''
         spacing = '        '*recursion_level
-        msg = 'Object:    {:<30}            ID: {:d}'.format(self.meta['name'],
+        msg = 'Object:    {:<30}            ID: {}'.format(self.meta['name'],
                                                              self.meta['object_id'])
         print(spacing + msg)
-        msg = '    Class: {:<30}            ID: {:d}'.format(self.get_class().meta['name'],
+        msg = '    Class: {:<30}            ID: {}'.format(self.get_class().meta['name'],
                                                              self.meta['class_id'])
         print(spacing + msg)
         if self.keys():
@@ -606,13 +861,55 @@ class ObjectDict(collections.MutableMapping):
                 print(spacing+'        %s = %s'%atr)
         else:
             print(spacing+'    No attributes set')
-        kids = self.get_children()
-        if len(kids):
-            print(spacing+'    Children (%s):'%len(kids))
-            for k in kids:
-                k.dump(recursion_level+1)
+        all_children = set([o.hierarchy for o in self.get_children()])
+        all_parents = set([o.hierarchy for o in self.get_parents()])
+        children = all_children - all_parents
+        parents = all_parents - all_children
+        peers = all_children & all_parents
+        if len(parents):
+            print(spacing+'    Parents (%s):'%len(parents))
+            for p in parents:
+                msg = '        '+p
+                print(spacing + msg)
+        else:
+            print(spacing+'    No parents')
+        if len(peers):
+            print(spacing+'    Peers (%s):'%len(peers))
+            for p in peers:
+                msg = '        '+p
+                print(spacing + msg)
+        else:
+            print(spacing+'    No peers')
+        if len(children):
+            print(spacing+'    Children (%s):'%len(children))
+            for k in children:
+                msg = '        '+k
+                print(spacing + msg)
+                #self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
         else:
             print(spacing+'    No children')
+        # Properties
+        props = self.get_properties()
+        prop_keys = sorted(props)
+        if len(prop_keys):
+            print(spacing+'    Properties:')
+            for pkey in prop_keys:
+                print(spacing+'        '+pkey)
+                for vkey in sorted(props[pkey]):
+                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        else:
+            print(spacing+'    No properties')
+        # Text
+        props = self.get_text()
+        prop_keys = sorted(props)
+        if len(prop_keys):
+            print(spacing+'    Text values:')
+            for pkey in prop_keys:
+                print(spacing+'        '+pkey)
+                for vkey in sorted(props[pkey]):
+                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        else:
+            print(spacing+'    No text values')
 
     def print_object_attrs(self):
         ''' Prints the object's attributes in Class.Object.Attribute=Value format

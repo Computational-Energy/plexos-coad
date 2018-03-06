@@ -10,6 +10,12 @@ def plex_to_datetime(plex_date, datemode=0):
     # datemode: 0 for 1900-based, 1 for 1904-based
     return datetime.datetime(1899, 12, 30) + datetime.timedelta(days=plex_date + 1462 * datemode)
 
+def datetime_to_plex(dtime, datemode=0):
+    '''Convert datetime to plexos date
+    '''
+    # datemode: 0 for 1900-based, 1 for 1904-based
+    return (dtime - datetime.datetime(1899, 12, 30)).days - 1462 * datemode
+
 def get_steps_per_day(horizon):
     '''Calculate how many steps per day for horizon
 
