@@ -279,7 +279,7 @@ class ClassDict(collections.MutableMapping):
     def __iter__(self):
         obj_dicts = self.coad.db['object'].find({'class_id':self.meta['class_id']},{'name':1, '_id':0})
         return iter([c['name'] for c in obj_dicts])
-        class ObjIterable:
+        class ObjIterable(object):
             def __init__(self, cls):
                 self.cls = cls
                 self.all_objects = self.cls.coad.db['object'].find({'class_id':self.cls.meta['class_id']})
@@ -290,7 +290,7 @@ class ClassDict(collections.MutableMapping):
         return ObjIterable(self)
 
     def __len__(self):
-        return self.coad.db['object'].find({'class_id':self.cls.meta['class_id']}).count()
+        return self.coad.db['object'].find({'class_id': self.cls.meta['class_id']}).count()
 
     def diff(self, other_class):
         ''' Return a list of difference between two ClassDict objects
