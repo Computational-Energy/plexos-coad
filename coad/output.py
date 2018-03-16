@@ -13,6 +13,7 @@ from zipfile import ZipFile
 
 from pandas import DataFrame
 from . import plexos_database
+from ._compat import cmp
 
 class PlexosOutput(collections.Mapping):
     """Expose the plexos output zipfile for limited queries
