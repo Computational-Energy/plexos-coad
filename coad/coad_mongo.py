@@ -246,9 +246,9 @@ class ClassDict(collections.MutableMapping):
         #for p in all_properties:
         #    self.valid_properties[p['property_id']] = p['name']
         self.valid_properties_by_name = {}
-        for p, pv in self.valid_properties.iteritems():
+        for p, pv in self.valid_properties.items():
             self.valid_properties_by_name[p] = {}
-            for k, v in pv.iteritems():
+            for k, v in pv.items():
                 if v['name'] in  self.valid_properties_by_name:
                     raise Exception("Duplicate property %s in class %s"%(v['name'], self.meta['name']))
                 self.valid_properties_by_name[p][v['name']] = k
@@ -747,7 +747,7 @@ class ObjectDict(collections.MutableMapping):
             others not set.
         '''
         raise Exception('Operation not implemented')
-        for name, value in new_dict.iteritems():
+        for name, value in new_dict.items():
             self.set_property(name, value)
 
     def get_text(self):

@@ -165,7 +165,7 @@ class PlexosClass(collections.Mapping):
         """
         data = {}
         times = None
-        for (name, obj) in self.iteritems():
+        for (name, obj) in self.items():
             if object_names is not None and name not in object_names:
                 continue
             #legend_name = "%s (%s)"%(name, obj.get_data_unit(property_name, period, phase))
@@ -196,7 +196,7 @@ class PlexosClass(collections.Mapping):
             Exception for units different between objects
         """
         unit = None
-        for (name, obj) in self.iteritems():
+        for (name, obj) in self.items():
             t_unit = obj.get_data_unit(property_name, period, phase)
             if t_unit is None:
                 continue

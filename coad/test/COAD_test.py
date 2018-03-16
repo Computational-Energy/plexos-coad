@@ -86,7 +86,7 @@ class TestCOAD(unittest.TestCase):
             "Allocation Year":"826"
             }
         actual = master_coad['Generator'].valid_properties_by_name['Emission']
-        for (k,v) in expected.iteritems():
+        for (k,v) in expected.items():
             self.assertIn(k, actual)
             self.assertEqual(v, actual[k])
         #self.assertEqual(expected, master_coad['Generator'].valid_properties_by_name['Emission'])
