@@ -9,12 +9,18 @@ try:
     # unix-specific package
     import resource
     has_resource = True
-except ImportError: pass
+except ImportError:
+    pass
+
 import sqlite3 as sql
 import sys
 import tempfile
 import time
-import xml.etree.cElementTree as etree
+
+try:
+    from lxml import etree
+except ImportError:
+    import xml.etree.cElementTree as etree
 
 from codecs import open
 from io import BytesIO
