@@ -16,6 +16,11 @@ import tempfile
 import time
 import xml.etree.cElementTree as etree
 
+from codecs import open
+from io import BytesIO
+
+from ._compat import is_py2
+
 # A meta table is needed to record certain properties of the XML file that
 # aren't part of the data stored within
 META_TABLE = "plexos_meta"

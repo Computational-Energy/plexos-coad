@@ -22,7 +22,7 @@ import subprocess
 import sys
 import uuid
 
-import plexos_mongo
+from . import plexos_mongo
 
 MONGODB_PROC = None
 
@@ -63,7 +63,7 @@ class COAD(collections.MutableMapping):
             port = 27017
             atexit.register(sys.modules[__name__].MONGODB_PROC.terminate)
         # Check for database in mongo.
-        dbname = os.path.basename(filename).translate(None, '.$')
+        dbname = os.path.basename(filename).replace(".", "").replace("$", "")
         if not reload:
             client = pymongo.MongoClient(host, port)
             self.db = client[dbname]
@@ -840,7 +840,7 @@ class ObjectDict(collections.MutableMapping):
                 # Check if tag already set for tag's object_id
                 tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
                 tags = self.clsdict.coad.db['tag'].find({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
-                print "Looking for tag %s, found %s"%(tag, tags.count())
+                print("Looking for tag %s, found %s"%(tag, tags.count()))
                 if tags.count() == 0:
                     self.clsdict.coad.db['tag'].insert({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
         return

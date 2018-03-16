@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 import h5py
 from pandas import DataFrame
-import plexos_database
+from . import plexos_database
 
 def plexos2hdf5(zipfilename, h5filename=None, save_db=False):
     """Read in the plexos solution zipfile and save data to an hdf5 file

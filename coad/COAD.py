@@ -21,7 +21,7 @@ import sys
 import time
 import uuid
 
-import plexos_database
+from . import plexos_database
 
 _logger = logging.getLogger(__name__)
 

@@ -12,7 +12,7 @@ import struct
 from zipfile import ZipFile
 
 from pandas import DataFrame
-import plexos_database
+from . import plexos_database
 
 class PlexosOutput(collections.Mapping):
     """Expose the plexos output zipfile for limited queries
