@@ -218,6 +218,7 @@ def get_dataframe(h5file, data_path):
     dset_len = len(dset)
     if len(time_data) != dset_len:
         time_data = time_data[0:dset_len]
+    time_data = [x.decode("utf-8") for x in time_data]
     # Create dataset with time data as index
     dframe = DataFrame(data={data_path:dset}, index=time_data)
     return dframe
