@@ -49,21 +49,14 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     Returns: sqlite db
     """
     try:
-        xml_file = open(source)
+        with open(source, encoding="utf-8") as filename:
+            data = filename.read()
+        xml_file = BytesIO(data.encode("utf-8"))
         filename = source
     except TypeError:
         xml_file = source
         filename = xml_file.name
     start_time = time.time()
-    if remove_invalid_chars:
-        new_xml_file = tempfile.NamedTemporaryFile(delete=False)
-        for line in xml_file:
-            for badc in INVALID_CHARS:
-                line = line.replace(badc.encode("utf-8-sig"), b"")
-            new_xml_file.write(line)
-        new_xml_file.seek(0)
-        xml_file = new_xml_file
-        filename = xml_file.name
     if create_db_file:
         if dbfilename is None:
             dbfilename = filename[:-4]+'.db'
@@ -85,8 +78,14 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     context = etree.iterparse(xml_file, events=('end', 'start-ns', 'start'))
     forkeys = [] # Foreign key list to add at the end of upload
     for action, elem in context:
+        if is_py2:
+            action = action.decode("utf-8")
         if action == 'start-ns':
-            namespace = elem[1]
+            # TODO: Never goes into this loop. Find out why.
+            if is_py2:
+                namespace = elem[1].decode("utf-8")
+            else:
+                namespace = elem[1]
             LOGGER.info("Setting namespace to %s", namespace)
             nsl = len(namespace)+2
             t_check = "{"+namespace+"}t_"
@@ -96,12 +95,17 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
                 # This should be the first element in the xml file
                 root_element = elem.tag[nsl:]
             continue
+        if is_py2:
+            elem.tag = elem.tag.decode("utf-8")
         if not elem.tag.startswith(t_check):
             continue
         table_name = elem.tag[nsl+2:]
         col_names = []
         col_values = []
         for el_data in elem.getchildren():
+            if is_py2:
+                el_data.tag = el_data.tag.decode("utf-8")
+                # el_data.text = el_data.text.decode("utf-8")
             col_names.append(el_data.tag[nsl:])
             col_values.append(el_data.text)
         # Check for new tables
@@ -109,7 +113,7 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
             cols = []
             for col_name in col_names:
                 if col_name.endswith('_id'):
-                    cols.append("'%s' INTEGER"%col_name)
+                    cols.append("'%s' INTEGER" % col_name)
                     if col_name[:-3] == table_name and table_name not in PK_EXCEPTIONS:
                         cols[-1] += " PRIMARY KEY"
                     else:

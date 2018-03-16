@@ -13,12 +13,12 @@ class TestPlexosSolution(unittest.TestCase):
         h5file = plexos2hdf5("coad/test/mda_output.zip", h5filename)
         # Was data loaded
         times = h5file['times/period_0']
-        self.assertEqual("16/04/2020 00:00:00", times[0])
-        self.assertEqual("17/04/2020 23:00:00", times[47])
+        self.assertEqual(b"16/04/2020 00:00:00", times[0])
+        self.assertEqual(b"17/04/2020 23:00:00", times[47])
         # Was the phase interval->period done correctly
         phase_times = h5file['times/phase_4']
-        self.assertEqual("16/04/2020 00:00:00", phase_times[0])
-        self.assertEqual("17/04/2020 23:00:00", phase_times[47])
+        self.assertEqual(b"16/04/2020 00:00:00", phase_times[0])
+        self.assertEqual(b"17/04/2020 23:00:00", phase_times[47])
         h5file.close()
         os.remove(h5filename)
 
@@ -44,7 +44,7 @@ class TestPlexosSolution(unittest.TestCase):
         """
         h5filename = "coad/test/mda_output_times.hdf5"
         h5file = plexos2hdf5("coad/test/mda_output.zip", h5filename)
-        expected = ["16/04/2020 %02d:00:00"%x for x in range(24)]
+        expected = [b"16/04/2020 %02d:00:00" % x for x in range(24)]
         # Phase 4 times span the entire range, although data is only output for
         # the first 24 items
         self.assertEqual(expected, list(h5file['times/phase_4'][0:24]))
