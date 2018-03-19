@@ -17,10 +17,15 @@ import sys
 import tempfile
 import time
 
-try:
-    from lxml import etree
-except ImportError:
+_xml_parser_config = os.getenv("COAD_ETREE", "xml")
+if _xml_parser_config == "lxml":
+    try:
+        from lxml import etree
+    except ImportError:
+        import xml.etree.cElementTree as etree
+else:
     import xml.etree.cElementTree as etree
+
 
 from codecs import open
 from io import BytesIO
