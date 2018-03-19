@@ -613,7 +613,7 @@ class ObjectDict(collections.MutableMapping):
             new ObjectDict
         '''
         # Verify there is no existing object of this class with this name
-        if newname in self.get_class().keys():
+        if newname in list(self.get_class().keys()):
             raise Exception("Duplicate name '%s' for same class"%newname)
         cols = []
         vals = []
