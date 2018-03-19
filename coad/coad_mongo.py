@@ -22,7 +22,7 @@ import subprocess
 import sys
 import uuid
 
-import plexos_mongo
+from . import plexos_mongo
 
 MONGODB_PROC = None
 
@@ -63,7 +63,7 @@ class COAD(collections.MutableMapping):
             port = 27017
             atexit.register(sys.modules[__name__].MONGODB_PROC.terminate)
         # Check for database in mongo.
-        dbname = os.path.basename(filename).translate(None, '.$')
+        dbname = os.path.basename(filename).replace(".", "").replace("$", "")
         if not reload:
             client = pymongo.MongoClient(host, port)
             self.db = client[dbname]
@@ -246,9 +246,9 @@ class ClassDict(collections.MutableMapping):
         #for p in all_properties:
         #    self.valid_properties[p['property_id']] = p['name']
         self.valid_properties_by_name = {}
-        for p, pv in self.valid_properties.iteritems():
+        for p, pv in self.valid_properties.items():
             self.valid_properties_by_name[p] = {}
-            for k, v in pv.iteritems():
+            for k, v in pv.items():
                 if v['name'] in  self.valid_properties_by_name:
                     raise Exception("Duplicate property %s in class %s"%(v['name'], self.meta['name']))
                 self.valid_properties_by_name[p][v['name']] = k
@@ -279,7 +279,7 @@ class ClassDict(collections.MutableMapping):
     def __iter__(self):
         obj_dicts = self.coad.db['object'].find({'class_id':self.meta['class_id']},{'name':1, '_id':0})
         return iter([c['name'] for c in obj_dicts])
-        class ObjIterable:
+        class ObjIterable(object):
             def __init__(self, cls):
                 self.cls = cls
                 self.all_objects = self.cls.coad.db['object'].find({'class_id':self.cls.meta['class_id']})
@@ -290,7 +290,7 @@ class ClassDict(collections.MutableMapping):
         return ObjIterable(self)
 
     def __len__(self):
-        return self.coad.db['object'].find({'class_id':self.cls.meta['class_id']}).count()
+        return self.coad.db['object'].find({'class_id': self.cls.meta['class_id']}).count()
 
     def diff(self, other_class):
         ''' Return a list of difference between two ClassDict objects
@@ -747,7 +747,7 @@ class ObjectDict(collections.MutableMapping):
             others not set.
         '''
         raise Exception('Operation not implemented')
-        for name, value in new_dict.iteritems():
+        for name, value in new_dict.items():
             self.set_property(name, value)
 
     def get_text(self):
@@ -840,7 +840,7 @@ class ObjectDict(collections.MutableMapping):
                 # Check if tag already set for tag's object_id
                 tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
                 tags = self.clsdict.coad.db['tag'].find({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
-                print "Looking for tag %s, found %s"%(tag, tags.count())
+                print("Looking for tag %s, found %s"%(tag, tags.count()))
                 if tags.count() == 0:
                     self.clsdict.coad.db['tag'].insert({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
         return

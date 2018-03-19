@@ -9,7 +9,7 @@ import struct
 from zipfile import ZipFile
 
 import pandas as pd
-import plexos_database
+from . import plexos_database
 
 # Some mappings for plexos
 TIMES = ("interval", "day", "week", "month", "year")

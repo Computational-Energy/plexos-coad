@@ -1,6 +1,7 @@
 from datetime import datetime
 import unittest
 from coad.output import PlexosOutput
+from coad._compat import cmp
 
 class TestPlexosSolution(unittest.TestCase):
 

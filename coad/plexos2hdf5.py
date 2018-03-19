@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 import h5py
 from pandas import DataFrame
-import plexos_database
+from . import plexos_database
 
 def plexos2hdf5(zipfilename, h5filename=None, save_db=False):
     """Read in the plexos solution zipfile and save data to an hdf5 file
@@ -64,13 +64,13 @@ def plexos2hdf5(zipfilename, h5filename=None, save_db=False):
     for row in cur.fetchall():
         c_meta = dict(zip([d[0] for d in cur.description], row))
         cls_grp = h5file.create_group(c_meta['name'])
-        for (name, val) in c_meta.iteritems():
+        for (name, val) in c_meta.items():
             cls_grp.attrs[name] = val
         cur.execute("SELECT * FROM object WHERE class_id=?", [c_meta['class_id']])
         for row in cur.fetchall():
             o_meta = dict(zip([d[0] for d in cur.description], row))
             obj_grp = cls_grp.create_group(o_meta['name'])
-            for (name, val) in o_meta.iteritems():
+            for (name, val) in o_meta.items():
                 obj_grp.attrs[name] = val
     # Add a view for better access to key mapping -> dset location
     cur.execute("""CREATE VIEW key_to_dataset AS
@@ -218,6 +218,7 @@ def get_dataframe(h5file, data_path):
     dset_len = len(dset)
     if len(time_data) != dset_len:
         time_data = time_data[0:dset_len]
+    time_data = [x.decode("utf-8") for x in time_data]
     # Create dataset with time data as index
     dframe = DataFrame(data={data_path:dset}, index=time_data)
     return dframe

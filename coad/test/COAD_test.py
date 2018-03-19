@@ -25,7 +25,7 @@ class TestCOAD(unittest.TestCase):
                      "Horizon", "Report", "LT Plan", "PASA", "MT Schedule",
                      "ST Schedule", "Transmission", "Production", "Competition",
                      "Stochastic", "Performance", "Diagnostic"]
-        self.assertEqual(expected, master_coad.keys())
+        self.assertEqual(expected, list(master_coad.keys()))
 
     def test_objects(self):
         expected = [u'MOSEK', u'CPLEX', u'Xpress-MP', u'Gurobi']
@@ -86,7 +86,7 @@ class TestCOAD(unittest.TestCase):
             "Allocation Year":"826"
             }
         actual = master_coad['Generator'].valid_properties_by_name['Emission']
-        for (k,v) in expected.iteritems():
+        for (k,v) in expected.items():
             self.assertIn(k, actual)
             self.assertEqual(v, actual[k])
         #self.assertEqual(expected, master_coad['Generator'].valid_properties_by_name['Emission'])
