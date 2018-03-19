@@ -267,7 +267,7 @@ def save(dbcon, filename):
     cur = dbcon.cursor()
     cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
     tables = [t[0] for t in cur.fetchall()]
-    with codecs.open(filename, "w+b", "utf-8-sig") as fout:
+    with codecs.open(filename, "w", "utf-8-sig") as fout:
         # file writing in Python3 is different than 2, have to convert
         # strings to bytes or open the file with an encoding.  There is no
         # easy write for all data types
