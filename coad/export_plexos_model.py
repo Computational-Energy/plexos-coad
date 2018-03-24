@@ -14,6 +14,8 @@ import argparse
 #  plx.export_plexos_model.write_tables(data,folder='./')
 
 def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
+    #right now this only works for a single model in the models list. It runs with multiple,
+    # but the resulting data isn't easily mapped back to the original model.
     
     if filter_val != '':
         try:
@@ -198,6 +200,7 @@ def export_data(coad, scenarios, objects,data_files,models):
     return(d)
 
 def write_tables(data,folder=''):
+    #this writes a readable csv, but everything is in a tuple ...
     for cls in data.cls.unique():
         df = data.loc[data['cls']==cls].groupby(['object', 'property'])['value'].apply(lambda x: tuple(x)).reset_index()\
                 .pivot(index='object', columns='property', values='value').fillna('')
