@@ -22,6 +22,7 @@ import time
 import uuid
 
 from . import plexos_database
+from . import export_plexos_model
 
 _logger = logging.getLogger(__name__)
 
