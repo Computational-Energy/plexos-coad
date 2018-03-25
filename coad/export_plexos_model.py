@@ -129,7 +129,7 @@ def export_data(coad, scenarios, objects,data_files,models):
             #parents
             if len(parents):
                 for p in parents:
-                    p_cls, p_val = p.split('.')
+                    p_cls, p_val = p.split('.',1)
                     if (p_cls == 'Model' and p_val in models) or p_cls != 'Model':
                         d.append({'cls': obj_class,
                                          'object': obj_name,
@@ -138,7 +138,7 @@ def export_data(coad, scenarios, objects,data_files,models):
             #peers
             if len(peers):
                 for p in peers:
-                    p_cls, p_val = p.split('.')
+                    p_cls, p_val = p.split('.',1)
                     d.append({'cls': obj_class,
                                      'object': obj_name,
                                      'property': p_cls,
@@ -146,7 +146,7 @@ def export_data(coad, scenarios, objects,data_files,models):
             #children
             if len(children):
                 for p in children:
-                    p_cls, p_val = p.split('.')
+                    p_cls, p_val = p.split('.',1)
                     d.append({'cls': obj_class,
                                      'object': obj_name,
                                      'property': p_cls,
@@ -157,7 +157,7 @@ def export_data(coad, scenarios, objects,data_files,models):
             prop_keys = sorted(props)
             if len(prop_keys):
                 for pkey in prop_keys:
-                    [prop_type,prop_name] = pkey.split('.')
+                    [prop_type,prop_name] = pkey.split('.',1)
                     vkeys = sorted(props[pkey])
                     read = False
                     scenario_tag = ''
