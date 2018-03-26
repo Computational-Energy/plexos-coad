@@ -200,16 +200,14 @@ def export_data(coad, scenarios, objects,data_files,models):
     return(d)
 
 def write_tables(data,folder=''):
-    #this writes a readable csv, but everything is in a tuple ...
+    #write readable csv files for each data class
     for cls in data.cls.unique():
         df = data.loc[data['cls']==cls].groupby(['object', 'property'])['value'].apply(lambda x: tuple(x)).reset_index()\
                 .pivot(index='object', columns='property', values='value').fillna('')
-        df.to_csv(os.path.join(folder,cls+'.csv'),index=False)
+        df.applymap(lambda x: x[0] if (len(x) == 1) else x).to_csv(os.path.join(folder,cls+'.csv'),index=False)
 
 
 def main():
-    """Parse args and process solution zipfile into hdf5
-    """
     parser = argparse.ArgumentParser(description="Export csv files for a specific PLEXOS input model")
 
     parser.add_argument('-f', '--filepath', help='path to PLEXOS input .xml or .db')
