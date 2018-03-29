@@ -8,9 +8,9 @@ import argparse
 #
 # USAGE:
 #  import coad.COAD as plx
-#  plx_mod = plx.COAD('RTS-GMLC.xml')
-#  objects,scenarios,data_files,models = plx.export_plexos_model.get_model_items(plx_mod,models=['DAY_AHEAD'])
-#  data = plx.export_plexos_model.export_data(plx_mod,scenarios,objects,data_files,models)
+#  plx_mod = plx.COAD('RTS-GMLC.xml') #instantiate coad
+#  objects = plx.export_plexos_model.get_model_items(plx_mod,models=['DAY_AHEAD'])
+#  data = plx.export_plexos_model.export_data(plx_mod,objects)
 #  plx.export_plexos_model.write_tables(data,folder='./')
 
 def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
@@ -99,14 +99,16 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     # drop the duplicates
     objects = pd.DataFrame(objects).drop_duplicates().reset_index(drop=True) #.T.to_dict().values()
     print('Done')
-    return(objects,scenarios,data_files,models)
+
+    export_objects = [objects,scenarios,data_files,models]
+    return(export_objects)
 
 
-def export_data(coad, scenarios, objects,data_files,models):
+def export_data(coad, export_objects):
     d = []
     
-    nobj = len(objects)
-    for index, row in objects.iterrows():
+    nobj = len(export_objects['objects'])
+    for index, row in export_objects['objects'].iterrows():
         #clear_output()
         #print('{0}/{1}'.format(index,nobj))
         obj_class = row['cls']
@@ -130,7 +132,7 @@ def export_data(coad, scenarios, objects,data_files,models):
             if len(parents):
                 for p in parents:
                     p_cls, p_val = p.split('.',1)
-                    if (p_cls == 'Model' and p_val in models) or p_cls != 'Model':
+                    if (p_cls == 'Model' and p_val in export_objects['models']) or p_cls != 'Model':
                         d.append({'cls': obj_class,
                                          'object': obj_name,
                                          'property': p_cls,
@@ -163,11 +165,11 @@ def export_data(coad, scenarios, objects,data_files,models):
                     scenario_tag = ''
                     datafile_tag = ''
                     if prop_type =='Scenario':
-                        if prop_name in scenarios:
+                        if prop_name in export_objects['scenarios']:
                             read = True
                             scenario_tag = prop_name
                     if prop_type == 'Data File':
-                        if prop_name in data_files:
+                        if prop_name in export_objects['data_files']:
                             read = True
                             datafile_tag = prop_name
                     if prop_type == 'System':
@@ -187,24 +189,40 @@ def export_data(coad, scenarios, objects,data_files,models):
             if len(prop_keys):
                 for pkey in prop_keys:
                     [cat,name] = pkey.split(".",1)
-                    if (cat == 'Scenario' and name in scenarios) or (cat == 'Data File' and name in data_files) or cat == 'System':
+                    if (cat == 'Scenario' and name in export_objects['scenarios']) or (cat == 'Data File' and name in export_objects['data_files']) or cat == 'System':
                         for vkey in sorted(props[pkey]):
+                            if props[pkey][vkey].notnull():
+                                cat,name = pkey,props[pkey][vkey]
                             d.append({'cls': obj_class,
                                              'object': obj_name,
                                              'property': vkey,
-                                             'scenario': pkey,
-                                             'value': props[pkey][vkey]})
+                                             'scenario': cat,
+                                             'value': name})
     
     d = pd.DataFrame(d)
+    data['scenario'].loc[data['scenario']==''] = np.nan
+    d.drop(d.index[d['value']=='System'],inplace=True)
     d.value = d.value.apply(lambda x: tuple(x) if type(x) is list else x)
     return(d)
 
 def write_tables(data,folder=''):
     #write readable csv files for each data class
+    def f(x):
+        if len(x.scenario)>1 and x.scenario.str.contains("Data File").any():
+            y = tuple(set(x.scenario).intersection(set(x.value)))
+            if len(y)==1:
+                y=tuple(data.loc[(data['cls']=="Data File") & (data["object"]==y[0]) & data["scenario"].notnull()].value)
+        else:
+            y=tuple(x.value)
+        return(y)
+
+
     for cls in data.cls.unique():
-        df = data.loc[data['cls']==cls].groupby(['object', 'property'])['value'].apply(lambda x: tuple(x)).reset_index()\
-                .pivot(index='object', columns='property', values='value').fillna('')
-        df.applymap(lambda x: x[0] if (len(x) == 1) else x).to_csv(os.path.join(folder,cls+'.csv'),index=False)
+        #df = data.loc[data['cls']==cls].groupby(['object', 'property'])['value'].apply(lambda x: tuple(x)).reset_index()\
+        #        .pivot(index='object', columns='property', values='value').fillna('')
+        df = data.loc[data['cls']==cls].groupby(['object', 'property']).apply(f).reset_index()\
+                .pivot(index='object', columns='property').fillna('')
+        df.applymap(lambda x: x[0] if (len(x) == 1) else x).to_csv(os.path.join(folder,cls+'.csv'))
 
 
 def main():
@@ -220,8 +238,8 @@ def main():
 
 
     coad = COAD(args.filepath)
-    objects, scenarios, data_files, models = get_model_items(coad,models=args.models,filter_cls=args.filter_cls,filter_val=args.filter_val)
-    data = export_data(coad,scenarios,objects,data_files,models)
+    export_objects= get_model_items(coad,models=args.models,filter_cls=args.filter_cls,filter_val=args.filter_val)
+    data = export_data(coad,export_objects)
     write_tables(data,args.output_folder)
 
 
