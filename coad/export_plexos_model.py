@@ -1,5 +1,6 @@
 import sys
 import pandas as pd
+import numpy as np
 import os
 import argparse
 
@@ -8,6 +9,9 @@ import argparse
 #
 # USAGE:
 #  import coad.COAD as plx
+#  import pandas as pd
+#  import numpy as np
+#  import os
 #  plx_mod = plx.COAD('RTS-GMLC.xml') #instantiate coad
 #  objects = plx.export_plexos_model.get_model_items(plx_mod,models=['DAY_AHEAD'])
 #  data = plx.export_plexos_model.export_data(plx_mod,objects)
@@ -74,25 +78,31 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     if regions == ['']:
         regions = coad[filter_cls].values() # + coad['Zone'].values()
 
-    for r in regions:
-        #print(filter_cls + ':  ' + r.meta['name'])
-        for p in r.get_parents():
-            #print('    parent: ' + p.meta['name'])
-            objects.append({#'relationship': 'parent',
-                                'cls': p.get_class().meta['name'],
-                                'name': p.meta['name']})
-                                #,'obj': p})
-            if p.meta['name'] != 'System':
-                for pp in p.get_children():
-                    objects.append({#'relationship': 'child',
+        for cls in coad.keys():
+            for n in coad[cls].keys():
+                objects.append({'cls':cls,'name':n})
+
+
+    else:
+        for r in regions:
+            #print(filter_cls + ':  ' + r.meta['name'])
+            for p in r.get_parents():
+                #print('    parent: ' + p.meta['name'])
+                objects.append({#'relationship': 'parent',
+                                    'cls': p.get_class().meta['name'],
+                                    'name': p.meta['name']})
+                                    #,'obj': p})
+                if p.meta['name'] != 'System':
+                    for pp in p.get_children():
+                        objects.append({#'relationship': 'child',
+                                    'cls': pp.get_class().meta['name'],
+                                    'name': pp.meta['name']})
+                                    #,'obj': pp})
+                for pp in p.get_parents():
+                    objects.append({#'relationship': 'parent',
                                 'cls': pp.get_class().meta['name'],
                                 'name': pp.meta['name']})
                                 #,'obj': pp})
-            for pp in p.get_parents():
-                objects.append({#'relationship': 'parent',
-                            'cls': pp.get_class().meta['name'],
-                            'name': pp.meta['name']})
-                            #,'obj': pp})
                     
                     
     print('Done Collecting Objects, removing duplicates...')
@@ -100,7 +110,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     objects = pd.DataFrame(objects).drop_duplicates().reset_index(drop=True) #.T.to_dict().values()
     print('Done')
 
-    export_objects = [objects,scenarios,data_files,models]
+    export_objects = {'objects':objects,'scenarios':scenarios,'data_files':data_files,'models':models}
     return(export_objects)
 
 
@@ -114,6 +124,7 @@ def export_data(coad, export_objects):
         obj_class = row['cls']
         obj_name = row['name']
         if not(obj_class=='System' and obj_name=='System'):
+            #print(obj_class,obj_name)
             obj = coad[obj_class][obj_name]
             if obj.keys():
                 for atr, val in obj.items():
@@ -189,9 +200,10 @@ def export_data(coad, export_objects):
             if len(prop_keys):
                 for pkey in prop_keys:
                     [cat,name] = pkey.split(".",1)
-                    if (cat == 'Scenario' and name in export_objects['scenarios']) or (cat == 'Data File' and name in export_objects['data_files']) or cat == 'System':
+                    if (cat == 'Scenario' and name in export_objects['scenarios']) or (cat == 'Data File' and name in export_objects['data_files']) or cat == 'System' or cat=='Variable':
                         for vkey in sorted(props[pkey]):
-                            if props[pkey][vkey].notnull():
+                            #print(pkey, vkey)
+                            if props[pkey][vkey]:
                                 cat,name = pkey,props[pkey][vkey]
                             d.append({'cls': obj_class,
                                              'object': obj_name,
@@ -200,7 +212,7 @@ def export_data(coad, export_objects):
                                              'value': name})
     
     d = pd.DataFrame(d)
-    data['scenario'].loc[data['scenario']==''] = np.nan
+    d['scenario'].loc[d['scenario']==''] = np.nan
     d.drop(d.index[d['value']=='System'],inplace=True)
     d.value = d.value.apply(lambda x: tuple(x) if type(x) is list else x)
     return(d)
@@ -222,7 +234,9 @@ def write_tables(data,folder=''):
         #        .pivot(index='object', columns='property', values='value').fillna('')
         df = data.loc[data['cls']==cls].groupby(['object', 'property']).apply(f).reset_index()\
                 .pivot(index='object', columns='property').fillna('')
-        df.applymap(lambda x: x[0] if (len(x) == 1) else x).to_csv(os.path.join(folder,cls+'.csv'))
+        df = df.applymap(lambda x: x[0] if (len(x) == 1) else x)
+        df.columns = df.columns.droplevel(0)
+        df.to_csv(os.path.join(folder,cls+'.csv'))
 
 
 def main():
