@@ -68,10 +68,12 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     
 
     #get all the data files associated with the scenarios
-    data_files = coad['Data File'].keys()
-    for data_file in coad['Data File'].values():
-        objects.append({'cls': data_file.get_class().meta['name'],
-                        'name': data_file.meta['name']})
+    data_files = []
+    for data_file in coad['Data File']:
+        for text in coad['Data File'][data_file].get_text():
+            if text in ['Scenario.' + s for s in scenarios] + ['System.System'] :
+                data_files.append({'cls': coad['Data File'][data_file].get_class().meta['name'],'name': coad['Data File'][data_file].meta['name']})
+
 
 
     #get all relatives of filter region/zone
@@ -108,9 +110,14 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     print('Done Collecting Objects, removing duplicates...')
     # drop the duplicates
     objects = pd.DataFrame(objects).drop_duplicates().reset_index(drop=True) #.T.to_dict().values()
+    if len(data_files): 
+        objects.drop(objects.index[(objects['cls']=='Data File') & (~objects['name'].isin([x['name'] for x in data_files]))],inplace=True)
+    else:
+        objects.drop(objects.index[objects['cls']=='Data File'],inplace=True)
+
     print('Done')
 
-    export_objects = {'objects':objects,'scenarios':scenarios,'data_files':data_files,'models':models}
+    export_objects = {'objects':objects,'scenarios':scenarios,'data_files':list(data_files),'models':models}
     return(export_objects)
 
 
@@ -167,63 +174,96 @@ def export_data(coad, export_objects):
 
             # Properties
             props = obj.get_properties()
-            prop_keys = sorted(props)
-            if len(prop_keys):
-                for pkey in prop_keys:
-                    [prop_type,prop_name] = pkey.split('.',1)
-                    vkeys = sorted(props[pkey])
-                    read = False
-                    scenario_tag = ''
-                    datafile_tag = ''
-                    if prop_type =='Scenario':
-                        if prop_name in export_objects['scenarios']:
-                            read = True
-                            scenario_tag = prop_name
-                    if prop_type == 'Data File':
-                        if prop_name in export_objects['data_files']:
-                            read = True
-                            datafile_tag = prop_name
-                    if prop_type == 'System':
-                        read = True
-                    if read == True:
-                        for vkey in vkeys:
-                            if vkey != 'uid':
-                                d.append({'cls': obj_class,
-                                                 'object': obj_name,
-                                                 'property': vkey,
-                                                 'scenario': ','.join(str(x) for x in [scenario_tag,datafile_tag] if x!=''),
-                                                 'value': props[pkey][vkey]})
+            if len(props):
+                props = pd.DataFrame(props).stack().reset_index()
+                props.columns = ['property','scenario','value']
+                props['cls'] = obj_class
+                props['object'] = obj_name
+                for item in props.to_dict('records'):
+                    d.append(item)
+                #d.append(props.drop('name',axis=1).to_dict('records'))
+
+            #old way
+            # prop_keys = sorted(props)
+            # if len(prop_keys):
+            #     for pkey in prop_keys:
+            #         [prop_type,prop_name] = pkey.split('.',1)
+            #         vkeys = sorted(props[pkey])
+            #         read = False
+            #         scenario_tag = ''
+            #         datafile_tag = ''
+            #         if prop_type =='Scenario':
+            #             if prop_name in export_objects['scenarios']:
+            #                 read = True
+            #                 scenario_tag = prop_name
+            #         if prop_type == 'Data File':
+            #             if prop_name in export_objects['data_files']:
+            #                 read = True
+            #                 datafile_tag = prop_name
+            #         if prop_type == 'System':
+            #             read = True
+            #         if read == True:
+            #             for vkey in vkeys:
+            #                 if vkey != 'uid':
+            #                     d.append({'cls': obj_class,
+            #                                      'object': obj_name,
+            #                                      'property': vkey,
+            #                                      'scenario': ','.join(str(x) for x in [scenario_tag,datafile_tag] if x!=''),
+            #                                      'value': props[pkey][vkey]})
 
             # Text
             props = obj.get_text()
-            prop_keys = sorted(props)
-            if len(prop_keys):
-                for pkey in prop_keys:
-                    [cat,name] = pkey.split(".",1)
-                    if (cat == 'Scenario' and name in export_objects['scenarios']) or (cat == 'Data File' and name in export_objects['data_files']) or cat == 'System' or cat=='Variable':
-                        for vkey in sorted(props[pkey]):
-                            #print(pkey, vkey)
-                            if props[pkey][vkey]:
-                                cat,name = pkey,props[pkey][vkey]
-                            d.append({'cls': obj_class,
-                                             'object': obj_name,
-                                             'property': vkey,
-                                             'scenario': cat,
-                                             'value': name})
+            if len(props):
+                props = pd.DataFrame(props).stack().reset_index()
+                props.columns = ['property','scenario','value']
+                props['cls'] = obj_class
+                props['object'] = obj_name
+                for item in props.to_dict('records'):
+                    d.append(item)
+
+            # old way
+            # prop_keys = sorted(props)
+            # if len(prop_keys):
+            #     for pkey in prop_keys:
+            #         [cat,name] = pkey.split(".",1)
+            #         if (cat == 'Scenario' and name in export_objects['scenarios']) or (cat == 'Data File' and name in export_objects['data_files']) or cat == 'System' or cat=='Variable':
+            #             for vkey in sorted(props[pkey]):
+            #                 #print(pkey, vkey)
+            #                 if props[pkey][vkey]:
+            #                     cat,name = pkey,props[pkey][vkey]
+            #                 d.append({'cls': obj_class,
+            #                                  'object': obj_name,
+            #                                  'property': vkey,
+            #                                  'scenario': cat,
+            #                                  'value': name})
     
     d = pd.DataFrame(d)
-    d['scenario'].loc[d['scenario']==''] = np.nan
+    d['scenario'].loc[(d['scenario']=='') | d['scenario'].isnull()] = 'System.System'
     d.drop(d.index[d['value']=='System'],inplace=True)
+    d.drop(d.index[~d['scenario'].isin(['Data File.' + s['name'] for s in export_objects['data_files']] + ['Scenario.' + s for s in export_objects['scenarios']] + ['System.System'])],inplace=True)
     d.value = d.value.apply(lambda x: tuple(x) if type(x) is list else x)
     return(d)
 
 def write_tables(data,folder=''):
     #write readable csv files for each data class
+    # def f(x):
+    #     if any(x.columns.str.contains('scenario')):
+    #         if len(x.scenario)>1 and x.scenario.str.contains("Data File").any():
+    #             y = tuple(set(x.scenario).intersection(set(x.value)))
+    #             if len(y)==1:
+    #                 y=tuple(data.loc[(data['cls']=="Data File") & (data["object"]==y[0]) & data["scenario"].notnull()].value)
+    #         else:
+    #             y=tuple(x.value)
+    #     else:
+    #         y=tuple(x.value)
+    #     return(y)
+
     def f(x):
-        if len(x.scenario)>1 and x.scenario.str.contains("Data File").any():
-            y = tuple(set(x.scenario).intersection(set(x.value)))
-            if len(y)==1:
-                y=tuple(data.loc[(data['cls']=="Data File") & (data["object"]==y[0]) & data["scenario"].notnull()].value)
+        if any(x.columns.str.contains('scenario')):
+            if len(x.scenario.unique())>1:
+                y = dict(x[['scenario','value']].to_dict('split')['data'])
+            else:
+                y=tuple(x.value)
         else:
             y=tuple(x.value)
         return(y)
