@@ -17,9 +17,15 @@ import argparse
 #  data = plx.export_plexos_model.export_data(plx_mod,objects)
 #  plx.export_plexos_model.write_tables(data,folder='./')
 
+
+# TODO: add scenario read order (default=0, if == 0: read_order='alphabetical')
+#   so that conflicting property/attribute definitions use the data defined by the higher read order
+
 def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     #right now this only works for a single model in the models list. It runs with multiple,
     # but the resulting data isn't easily mapped back to the original model.
+    # ... could replace [models] with model and remove for loop, or
+    # enable model specfication in export_data...
     
     if filter_val != '':
         try:
@@ -69,7 +75,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
 
     #get all the data files associated with the scenarios
     data_files = []
-    for data_file in coad['Data File']:
+    for data_file in coad['Data File']: #loop through every data file and only grab the ones that are active
         for text in coad['Data File'][data_file].get_text():
             if text in ['Scenario.' + s for s in scenarios] + ['System.System'] :
                 data_files.append({'cls': coad['Data File'][data_file].get_class().meta['name'],'name': coad['Data File'][data_file].meta['name']})
@@ -122,6 +128,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
 
 
 def export_data(coad, export_objects):
+    # this is really slow, I think due to the get_properties, get_children, and get_parents calls
     d = []
     
     nobj = len(export_objects['objects'])
@@ -181,35 +188,6 @@ def export_data(coad, export_objects):
                 props['object'] = obj_name
                 for item in props.to_dict('records'):
                     d.append(item)
-                #d.append(props.drop('name',axis=1).to_dict('records'))
-
-            #old way
-            # prop_keys = sorted(props)
-            # if len(prop_keys):
-            #     for pkey in prop_keys:
-            #         [prop_type,prop_name] = pkey.split('.',1)
-            #         vkeys = sorted(props[pkey])
-            #         read = False
-            #         scenario_tag = ''
-            #         datafile_tag = ''
-            #         if prop_type =='Scenario':
-            #             if prop_name in export_objects['scenarios']:
-            #                 read = True
-            #                 scenario_tag = prop_name
-            #         if prop_type == 'Data File':
-            #             if prop_name in export_objects['data_files']:
-            #                 read = True
-            #                 datafile_tag = prop_name
-            #         if prop_type == 'System':
-            #             read = True
-            #         if read == True:
-            #             for vkey in vkeys:
-            #                 if vkey != 'uid':
-            #                     d.append({'cls': obj_class,
-            #                                      'object': obj_name,
-            #                                      'property': vkey,
-            #                                      'scenario': ','.join(str(x) for x in [scenario_tag,datafile_tag] if x!=''),
-            #                                      'value': props[pkey][vkey]})
 
             # Text
             props = obj.get_text()
@@ -221,21 +199,7 @@ def export_data(coad, export_objects):
                 for item in props.to_dict('records'):
                     d.append(item)
 
-            # old way
-            # prop_keys = sorted(props)
-            # if len(prop_keys):
-            #     for pkey in prop_keys:
-            #         [cat,name] = pkey.split(".",1)
-            #         if (cat == 'Scenario' and name in export_objects['scenarios']) or (cat == 'Data File' and name in export_objects['data_files']) or cat == 'System' or cat=='Variable':
-            #             for vkey in sorted(props[pkey]):
-            #                 #print(pkey, vkey)
-            #                 if props[pkey][vkey]:
-            #                     cat,name = pkey,props[pkey][vkey]
-            #                 d.append({'cls': obj_class,
-            #                                  'object': obj_name,
-            #                                  'property': vkey,
-            #                                  'scenario': cat,
-            #                                  'value': name})
+
     
     d = pd.DataFrame(d)
     d['scenario'].loc[(d['scenario']=='') | d['scenario'].isnull()] = 'System.System'
@@ -246,17 +210,6 @@ def export_data(coad, export_objects):
 
 def write_tables(data,folder=''):
     #write readable csv files for each data class
-    # def f(x):
-    #     if any(x.columns.str.contains('scenario')):
-    #         if len(x.scenario)>1 and x.scenario.str.contains("Data File").any():
-    #             y = tuple(set(x.scenario).intersection(set(x.value)))
-    #             if len(y)==1:
-    #                 y=tuple(data.loc[(data['cls']=="Data File") & (data["object"]==y[0]) & data["scenario"].notnull()].value)
-    #         else:
-    #             y=tuple(x.value)
-    #     else:
-    #         y=tuple(x.value)
-    #     return(y)
 
     def f(x):
         if any(x.columns.str.contains('scenario')):
