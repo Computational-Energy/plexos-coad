@@ -1,8 +1,9 @@
-import sys
-import pandas as pd
+import argparse
+import csv
 import numpy as np
 import os
-import argparse
+import pandas as pd
+import sys
 
 #####
 # export the data associated with a plexos input model and write as accessable csv files
@@ -26,7 +27,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
     # but the resulting data isn't easily mapped back to the original model.
     # ... could replace [models] with model and remove for loop, or
     # enable model specfication in export_data...
-    
+
     if filter_val != '':
         try:
             regions = [coad[filter_cls][filter_val]]
@@ -35,7 +36,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
                 filter_cls = 'Zone'
             else:
                 filter_cls = 'Region'
-            
+
         try:
             regions = [coad[filter_cls][filter_val]]
         except:
@@ -43,14 +44,14 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
             print('Cannot find filter in Regions or Zones')
     else:
         regions = ['']
-    
+
 
     objects = []
     scenarios = []
 
     if models == ['']:
         sys.exit('Please specify a model to export')
-        
+
     for mod in models:
         #all possible objects in a PLEXOS model
         all_fields = set(coad.keys())
@@ -71,7 +72,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
         for s in settings:
             objects.append({'cls': s.split('.',1)[0],
                                 'name': s.split('.',1)[1]})
-    
+
 
     #get all the data files associated with the scenarios
     data_files = []
@@ -111,12 +112,12 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
                                 'cls': pp.get_class().meta['name'],
                                 'name': pp.meta['name']})
                                 #,'obj': pp})
-                    
-                    
+
+
     print('Done Collecting Objects, removing duplicates...')
     # drop the duplicates
     objects = pd.DataFrame(objects).drop_duplicates().reset_index(drop=True) #.T.to_dict().values()
-    if len(data_files): 
+    if len(data_files):
         objects.drop(objects.index[(objects['cls']=='Data File') & (~objects['name'].isin([x['name'] for x in data_files]))],inplace=True)
     else:
         objects.drop(objects.index[objects['cls']=='Data File'],inplace=True)
@@ -130,7 +131,7 @@ def get_model_items(coad,models, filter_val = '',filter_cls = 'Region'):
 def export_data(coad, export_objects):
     # this is really slow, I think due to the get_properties, get_children, and get_parents calls
     d = []
-    
+
     nobj = len(export_objects['objects'])
     for index, row in export_objects['objects'].iterrows():
         #clear_output()
@@ -200,7 +201,7 @@ def export_data(coad, export_objects):
                     d.append(item)
 
 
-    
+
     d = pd.DataFrame(d)
     d['scenario'].loc[(d['scenario']=='') | d['scenario'].isnull()] = 'System.System'
     d.drop(d.index[d['value']=='System'],inplace=True)
@@ -231,6 +232,166 @@ def write_tables(data,folder=''):
         df.columns = df.columns.droplevel(0)
         df.to_csv(os.path.join(folder,cls+'.csv'))
 
+def get_related_objects(coad_obj, obj_id, obj_set=None):
+    """Recursively get all object related to passed object
+        Searches:
+            - children in membership
+            - tagged data
+
+        The system object (obj_id = 1) is ignored in all cases
+
+        Return set of obj_ids with duplicates removed
+    """
+    if obj_id == '1':
+        # Ignore System object
+        return obj_set
+    if obj_set is None:
+        obj_set = set()
+    cur = coad_obj.dbcon.cursor()
+    cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (obj_id,))
+    ret_list = []
+    for row in cur.fetchall():
+        ret_list.append(row[0])
+    cur.execute("""SELECT m.child_object_id FROM tag t
+    INNER JOIN property p ON p.property_id=d.property_id
+    INNER JOIN data d ON t.data_id=d.data_id
+    INNER JOIN membership m ON m.membership_id=d.membership_id
+    WHERE t.object_id=?""", (obj_id,))
+    for row in cur.fetchall():
+        ret_list.append(row[0])
+    ret_set = set(ret_list)
+    new_obj_ids = ret_set - obj_set
+    total_set = ret_set | obj_set
+    for o_id in new_obj_ids:
+        new_obj_set = get_related_objects(coad_obj, o_id, total_set)
+        total_set = new_obj_set | total_set
+    return total_set
+
+def write_object_report(coad_obj, folder=None):
+    """Retrieve all associated objects to coad_obj, pull in attributes, properties,
+    and texts.  Write as a series of CSV files in folder.
+    """
+    interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
+    cur = coad_obj.coad.dbcon.cursor()
+    if folder is None:
+        folder = coad_obj.meta['name']
+    print("Writing report on %s objects to %s"%(len(interesting_objs), folder))
+    if not os.path.isdir(folder):
+        print("Creating report folder %s"%folder)
+        os.makedirs(folder)
+    # Create class mapping dict
+    class_map = {}
+    for c_obj in interesting_objs:
+        cur.execute("""SELECT c.name FROM object o
+            INNER JOIN class c ON c.class_id=o.class_id
+            WHERE o.object_id=?""",(c_obj,))
+        t_cls = cur.fetchone()[0]
+        if t_cls not in class_map:
+            class_map[t_cls] = []
+        class_map[t_cls].append(c_obj)
+    for cls_name, obj_list in class_map.items():
+        #for obj_id in class_map[cls_name]:
+        csv_dict = {}
+        # Get attributes
+        cur.execute("""SELECT ad.object_id, a.name, ad.value FROM attribute_data ad
+            INNER JOIN attribute a ON a.attribute_id=ad.attribute_id
+            WHERE ad.object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
+        for row in cur.fetchall():
+            if row[0] not in csv_dict:
+                csv_dict[row[0]] = {}
+            obj_dict = csv_dict[row[0]]
+            if row[1] in obj_dict:
+                if isinstance(obj_dict[row[1]], str):
+                    obj_dict[row[1]] = [obj_dict[row[1]]]
+                obj_dict[row[1]].append(row[2])
+            else:
+                obj_dict[row[1]]=row[2]
+        # Get properties with tags
+        cur.execute("""SELECT m.child_object_id, p.name, d.value, c.name, o.name FROM data d
+            INNER JOIN membership m ON m.membership_id=d.membership_id
+            INNER JOIN property p ON p.property_id=d.property_id
+            INNER JOIN tag t ON t.data_id=d.data_id
+            INNER JOIN object o ON t.object_id=o.object_id
+            INNER JOIN class c ON c.class_id=o.class_id
+            WHERE m.child_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
+        for row in cur.fetchall():
+            (obj_id, name, value, tag_cls, tag_obj) = row
+            if obj_id not in csv_dict:
+                csv_dict[obj_id] = {}
+            obj_dict = csv_dict[obj_id]
+            to_append = ("%s.%s"%(tag_cls, tag_obj), value)
+            if name in obj_dict:
+                if isinstance(obj_dict[name], type(to_append)):
+                    obj_dict[name] = [obj_dict[name]]
+                obj_dict[name].append(to_append)
+            else:
+                obj_dict[name]=to_append
+        # Get text
+        cur.execute("""SELECT m.child_object_id, p.name, te.value, c.name, o.name FROM text te
+            INNER JOIN data d ON te.data_id=d.data_id
+            INNER JOIN membership m ON m.membership_id=d.membership_id
+            INNER JOIN property p ON p.property_id=d.property_id
+            INNER JOIN tag t ON t.data_id=d.data_id
+            INNER JOIN object o ON t.object_id=o.object_id
+            INNER JOIN class c ON c.class_id=o.class_id
+            WHERE m.child_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
+        for row in cur.fetchall():
+            (obj_id, name, value, tag_cls, tag_obj) = row
+            if obj_id not in csv_dict:
+                csv_dict[obj_id] = {}
+            obj_dict = csv_dict[obj_id]
+            to_append = ("%s.%s"%(tag_cls, tag_obj), value)
+            if name in obj_dict:
+                if isinstance(obj_dict[name], type(to_append)):
+                    obj_dict[name] = [obj_dict[name]]
+                obj_dict[name].append(to_append)
+            else:
+                obj_dict[name]=to_append
+        # Get tags
+        # Get children listed under class name
+        cur.execute("""SELECT m.parent_object_id, c.name, o.name FROM membership m
+            INNER JOIN class c ON c.class_id=m.child_class_id
+            INNER JOIN object o ON o.object_id=m.child_object_id
+            WHERE m.parent_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
+        for row in cur.fetchall():
+            (obj_id, name, value) = row
+            if obj_id not in csv_dict:
+                csv_dict[obj_id] = {}
+            obj_dict = csv_dict[obj_id]
+            if name in obj_dict:
+                if isinstance(obj_dict[name], str):
+                    obj_dict[name] = [obj_dict[name]]
+                obj_dict[name].append(value)
+            else:
+                obj_dict[name] = value
+        # Write file for this class
+        if len(csv_dict.keys()) > 0:
+            filename = os.path.join(folder, "%s.csv"%cls_name)
+            print("Writing %s"%filename)
+            # Get all columns
+            colnames = []
+            for (oid, dat) in csv_dict.items():
+                colnames = list(set(colnames) | set(dat.keys()))
+            #print ("Columns:", colnames)
+            with open(filename, 'wb') as csvfile:
+                csvwriter = csv.writer(csvfile)
+                # Write header
+                csvwriter.writerow(['object'] + colnames)
+                for (oid, dat) in csv_dict.items():
+                    # Get object name
+                    cur.execute("SELECT name FROM object o WHERE object_id=?", (oid,))
+                    row = [cur.fetchone()[0]]
+                    # Write row
+                    for x in colnames:
+                        if x in dat:
+                            row.append(dat[x])
+                        else:
+                            row.append("")
+                    csvwriter.writerow(row)
+        else:
+            print("Class %s has no object data"%cls_name)
+        #print csv_dict
+    #print class_map
 
 def main():
     parser = argparse.ArgumentParser(description="Export csv files for a specific PLEXOS input model")
