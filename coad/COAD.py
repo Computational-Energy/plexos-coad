@@ -60,6 +60,8 @@ class COAD(collections.MutableMapping):
         cur = self.dbcon.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
         self.table_list = [x[0] for x in cur.fetchall()]
+        # Create var to hold hierarchies that were looked up
+        self._hierarchy_cache = {}
         # Test for uid in data table, important for ordering of properties.
         # Occasionally missing from input files
         self.has_data_uid = False
@@ -133,10 +135,15 @@ class COAD(collections.MutableMapping):
 
     def get_hierarchy_for_object_id(self, object_id):
         ''' Return a hierarchy based on object_id.  Added to remove instantiation
-        of various objects during property lookups
+        of various objects during property lookups.
+
+        Caching hierarchies as this is called often and they don't change
         '''
+        object_id = str(object_id)
+        if object_id in self._hierarchy_cache:
+            return self._hierarchy_cache[object_id]
+        _logger.info("get_hierarchy_for_object_id(%s) cache miss", object_id)
         stime = time.time()
-        _logger.info("get_hierarchy_for_object_id(%s) start", object_id)
         cur = self.dbcon.cursor()
         sel = '''SELECT o.name AS oname, c.name AS cname FROM object o
                  INNER JOIN class c ON c.class_id=o.class_id
@@ -144,8 +151,10 @@ class COAD(collections.MutableMapping):
         cur.execute(sel, [object_id])
         (oname, cname) = cur.fetchone()
         #retobj = self[cname][oname]
+        hier = "%s.%s"%(cname, oname)
         _logger.info("get_hierarchy_for_object_id(%s) took %s sec", object_id, time.time()-stime)
-        return "%s.%s"%(cname, oname)
+        self._hierarchy_cache[object_id] = hier
+        return hier
         #objcls = ClassDict(self, clsmeta)
         #return ObjectDict(objcls, objmeta)
 
