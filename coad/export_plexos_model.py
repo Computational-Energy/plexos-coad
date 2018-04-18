@@ -334,48 +334,6 @@ def write_object_report(coad_obj, folder=None):
                     if tagname in csv_dict[obj_id][propname]:
                         print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
                     csv_dict[obj_id][propname][tagname] = values
-
-        # Get properties with tags
-        # cur.execute("""SELECT m.child_object_id, p.name, d.value, c.name, o.name FROM data d
-        #     INNER JOIN membership m ON m.membership_id=d.membership_id
-        #     INNER JOIN property p ON p.property_id=d.property_id
-        #     INNER JOIN tag t ON t.data_id=d.data_id
-        #     INNER JOIN object o ON t.object_id=o.object_id
-        #     INNER JOIN class c ON c.class_id=o.class_id
-        #     WHERE m.child_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
-        # for row in cur.fetchall():
-        #     (obj_id, name, value, tag_cls, tag_obj) = row
-        #     if obj_id not in csv_dict:
-        #         csv_dict[obj_id] = {}
-        #     obj_dict = csv_dict[obj_id]
-        #     to_append = ("%s.%s"%(tag_cls, tag_obj), value)
-        #     if name in obj_dict:
-        #         if isinstance(obj_dict[name], type(to_append)):
-        #             obj_dict[name] = [obj_dict[name]]
-        #         obj_dict[name].append(to_append)
-        #     else:
-        #         obj_dict[name]=to_append
-        # Get text
-        # cur.execute("""SELECT m.child_object_id, p.name, te.value, c.name, o.name FROM text te
-        #     INNER JOIN data d ON te.data_id=d.data_id
-        #     INNER JOIN membership m ON m.membership_id=d.membership_id
-        #     INNER JOIN property p ON p.property_id=d.property_id
-        #     INNER JOIN tag t ON t.data_id=d.data_id
-        #     INNER JOIN object o ON t.object_id=o.object_id
-        #     INNER JOIN class c ON c.class_id=o.class_id
-        #     WHERE m.child_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
-        # for row in cur.fetchall():
-        #     (obj_id, name, value, tag_cls, tag_obj) = row
-        #     if obj_id not in csv_dict:
-        #         csv_dict[obj_id] = {}
-        #     obj_dict = csv_dict[obj_id]
-        #     to_append = ("%s.%s"%(tag_cls, tag_obj), value)
-        #     if name in obj_dict:
-        #         if isinstance(obj_dict[name], type(to_append)):
-        #             obj_dict[name] = [obj_dict[name]]
-        #         obj_dict[name].append(to_append)
-        #     else:
-        #         obj_dict[name]=to_append
         # Get tags
         # Get children listed under class name
         cur.execute("""SELECT m.parent_object_id, c.name, o.name FROM membership m
