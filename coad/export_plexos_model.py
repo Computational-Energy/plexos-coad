@@ -402,7 +402,7 @@ def write_object_report(coad_obj, folder=None):
             for (oid, dat) in csv_dict.items():
                 colnames = list(set(colnames) | set(dat.keys()))
             #print ("Columns:", colnames)
-            with open(filename, 'wb') as csvfile:
+            with open(filename, 'w') as csvfile:
                 csvwriter = csv.writer(csvfile)
                 # Write header
                 csvwriter.writerow(['object'] + colnames)
