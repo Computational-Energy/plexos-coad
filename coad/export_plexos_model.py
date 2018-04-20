@@ -15,14 +15,10 @@ except NameError:
 # export the data associated with a plexos input model and write as accessable csv files
 #
 # USAGE:
-#  import coad.COAD as plx
-#  import pandas as pd
-#  import numpy as np
-#  import os
-#  plx_mod = plx.COAD('RTS-GMLC.xml') #instantiate coad
-#  objects = plx.export_plexos_model.get_model_items(plx_mod,models=['DAY_AHEAD'])
-#  data = plx.export_plexos_model.export_data(plx_mod,objects)
-#  plx.export_plexos_model.write_tables(data,folder='./')
+#  from coad.COAD import COAD
+#  from coad import export_plexos_model
+#  c = COAD(<filename for xml or db here>)
+#  export_plexos_model.write_object_report(c['Model']['modelname'])
 
 
 # TODO: add scenario read order (default=0, if == 0: read_order='alphabetical')
@@ -364,47 +360,6 @@ def create_csv_dict(coad_obj,cls_name,cur,obj_list_super,tagset):
                     print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
                 csv_dict[obj_id][propname][tagname] = values
 
-    # Get properties with tags
-    # cur.execute("""SELECT m.child_object_id, p.name, d.value, c.name, o.name FROM data d
-    #     INNER JOIN membership m ON m.membership_id=d.membership_id
-    #     INNER JOIN property p ON p.property_id=d.property_id
-    #     INNER JOIN tag t ON t.data_id=d.data_id
-    #     INNER JOIN object o ON t.object_id=o.object_id
-    #     INNER JOIN class c ON c.class_id=o.class_id
-    #     WHERE m.child_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
-    # for row in cur.fetchall():
-    #     (obj_id, name, value, tag_cls, tag_obj) = row
-    #     if obj_id not in csv_dict:
-    #         csv_dict[obj_id] = {}
-    #     obj_dict = csv_dict[obj_id]
-    #     to_append = ("%s.%s"%(tag_cls, tag_obj), value)
-    #     if name in obj_dict:
-    #         if isinstance(obj_dict[name], type(to_append)):
-    #             obj_dict[name] = [obj_dict[name]]
-    #         obj_dict[name].append(to_append)
-    #     else:
-    #         obj_dict[name]=to_append
-    # Get text
-    # cur.execute("""SELECT m.child_object_id, p.name, te.value, c.name, o.name FROM text te
-    #     INNER JOIN data d ON te.data_id=d.data_id
-    #     INNER JOIN membership m ON m.membership_id=d.membership_id
-    #     INNER JOIN property p ON p.property_id=d.property_id
-    #     INNER JOIN tag t ON t.data_id=d.data_id
-    #     INNER JOIN object o ON t.object_id=o.object_id
-    #     INNER JOIN class c ON c.class_id=o.class_id
-    #     WHERE m.child_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
-    # for row in cur.fetchall():
-    #     (obj_id, name, value, tag_cls, tag_obj) = row
-    #     if obj_id not in csv_dict:
-    #         csv_dict[obj_id] = {}
-    #     obj_dict = csv_dict[obj_id]
-    #     to_append = ("%s.%s"%(tag_cls, tag_obj), value)
-    #     if name in obj_dict:
-    #         if isinstance(obj_dict[name], type(to_append)):
-    #             obj_dict[name] = [obj_dict[name]]
-    #         obj_dict[name].append(to_append)
-    #     else:
-    #         obj_dict[name]=to_append
     # Get tags
     # Get children listed under class name
     istart = 0
