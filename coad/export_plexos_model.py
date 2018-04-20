@@ -269,7 +269,7 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
         total_set = new_obj_set | total_set
     return total_set
 
-def write_csv_dict(csv_dict,folder,cls_name):
+def write_csv_dict(cur,csv_dict,folder,cls_name):
             # Write file for this class
         if len(csv_dict.keys()) > 0:
             filename = os.path.join(folder, "%s.csv"%cls_name)
@@ -297,7 +297,7 @@ def write_csv_dict(csv_dict,folder,cls_name):
         else:
             print("Class %s has no object data"%cls_name)
 
-def create_csv_dict(coad_obj,cls_name,cur,obj_list_super,tagset):
+def create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,tagset):
     csv_dict = {}
     # Get attributes
     istart = 0
@@ -415,8 +415,8 @@ def write_object_report(coad_obj, folder=None):
     tagset = set()
     for cls_name, obj_list_super in class_map.items():
         #for obj_id in class_map[cls_name]:
-        csv_dict, tagset = create_csv_dict(coad_obj,cls_name,cur,obj_list_super,tagset)
-        write_csv_dict(csv_dict,folder,cls_name)
+        csv_dict, tagset = create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,tagset)
+        write_csv_dict(cur,csv_dict,folder,cls_name)
     #print class_map
     
     #do it again for the objects identified with tags
@@ -425,8 +425,8 @@ def write_object_report(coad_obj, folder=None):
     tag_tagset = set()
     for tag_cls_name, tag_obj_list_super in tag_class_map.items():
         #for obj_id in class_map[cls_name]:
-        tag_csv_dict, tag_tagset = create_csv_dict(coad_obj,tag_cls_name,cur,tag_obj_list_super,tag_tagset)
-        write_csv_dict(tag_csv_dict,folder,tag_cls_name)
+        tag_csv_dict, tag_tagset = create_csv_dict(coad_obj,tag_cls_name,cur,tag_obj_list_super,tag_all_interesting_objs,tag_tagset)
+        write_csv_dict(cur,tag_csv_dict,folder,tag_cls_name)
 
 
 def main():
