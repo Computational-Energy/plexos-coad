@@ -5,18 +5,20 @@ import os
 import pandas as pd
 import sys
 
+#silly type checking thin
+try:
+    basestring
+except NameError:
+    basestring = str
+
 #####
 # export the data associated with a plexos input model and write as accessable csv files
 #
 # USAGE:
-#  import coad.COAD as plx
-#  import pandas as pd
-#  import numpy as np
-#  import os
-#  plx_mod = plx.COAD('RTS-GMLC.xml') #instantiate coad
-#  objects = plx.export_plexos_model.get_model_items(plx_mod,models=['DAY_AHEAD'])
-#  data = plx.export_plexos_model.export_data(plx_mod,objects)
-#  plx.export_plexos_model.write_tables(data,folder='./')
+#  from coad.COAD import COAD
+#  from coad import export_plexos_model
+#  c = COAD(<filename for xml or db here>)
+#  export_plexos_model.write_object_report(c['Model']['modelname'])
 
 
 # TODO: add scenario read order (default=0, if == 0: read_order='alphabetical')
@@ -242,11 +244,11 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
 
         Return set of obj_ids with duplicates removed
     """
-    if obj_id == '1':
+    #if obj_id == '1':
         # Ignore System object
-        return obj_set
+        # return obj_set
     if obj_set is None:
-        obj_set = set()
+        obj_set = set([1])
     cur = coad_obj.dbcon.cursor()
     cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (obj_id,))
     ret_list = []
@@ -267,91 +269,8 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
         total_set = new_obj_set | total_set
     return total_set
 
-def write_object_report(coad_obj, folder=None):
-    """Retrieve all associated objects to coad_obj, pull in attributes, properties,
-    and texts.  Write as a series of CSV files in folder.
-    """
-    interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
-    cur = coad_obj.coad.dbcon.cursor()
-    if folder is None:
-        folder = coad_obj.meta['name']
-    print("Writing report on %s objects to %s"%(len(interesting_objs), folder))
-    if not os.path.isdir(folder):
-        print("Creating report folder %s"%folder)
-        os.makedirs(folder)
-    # Create class mapping dict
-    class_map = {}
-    for c_obj in interesting_objs:
-        cur.execute("""SELECT c.name FROM object o
-            INNER JOIN class c ON c.class_id=o.class_id
-            WHERE o.object_id=?""",(c_obj,))
-        t_cls = cur.fetchone()[0]
-        if t_cls not in class_map:
-            class_map[t_cls] = []
-        class_map[t_cls].append(c_obj)
-    for cls_name, obj_list in class_map.items():
-        #for obj_id in class_map[cls_name]:
-        csv_dict = {}
-        # Get attributes
-        cur.execute("""SELECT ad.object_id, a.name, ad.value FROM attribute_data ad
-            INNER JOIN attribute a ON a.attribute_id=ad.attribute_id
-            WHERE ad.object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
-        for row in cur.fetchall():
-            if row[0] not in csv_dict:
-                csv_dict[row[0]] = {}
-            obj_dict = csv_dict[row[0]]
-            if row[1] in obj_dict:
-                if isinstance(obj_dict[row[1]], str):
-                    obj_dict[row[1]] = [obj_dict[row[1]]]
-                obj_dict[row[1]].append(row[2])
-            else:
-                obj_dict[row[1]]=row[2]
-        # New way to get properties and text
-        for obj_id in obj_list:
-            obj = coad_obj.coad.get_by_object_id(obj_id)
-            #for o_props in (obj.get_properties(), obj.get_text()):
-            o_props = obj.get_properties()
-            # By object, get_properties and get_text returns a dict of tag:propname:value(s)
-            # Needs to be transformed to propname:tag:values
-            if obj_id not in csv_dict:
-                csv_dict[obj_id] = {}
-            for (tagname, pdict) in o_props.items():
-                for (propname, values) in pdict.items():
-                    if propname not in csv_dict[obj_id]:
-                        csv_dict[obj_id][propname] = {}
-                    if tagname in csv_dict[obj_id][propname]:
-                        print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
-                    csv_dict[obj_id][propname][tagname] = values
-            o_props = obj.get_text()
-            # Text objects overwrite properties, so rename property to propname(text)
-            if obj_id not in csv_dict:
-                csv_dict[obj_id] = {}
-            for (tagname, pdict) in o_props.items():
-                for (propname, values) in pdict.items():
-                    propname += "(text)"
-                    if propname not in csv_dict[obj_id]:
-                        csv_dict[obj_id][propname] = {}
-                    if tagname in csv_dict[obj_id][propname]:
-                        print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
-                    csv_dict[obj_id][propname][tagname] = values
-        # Get tags
-        # Get children listed under class name
-        cur.execute("""SELECT m.parent_object_id, c.name, o.name FROM membership m
-            INNER JOIN class c ON c.class_id=m.child_class_id
-            INNER JOIN object o ON o.object_id=m.child_object_id
-            WHERE m.parent_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
-        for row in cur.fetchall():
-            (obj_id, name, value) = row
-            if obj_id not in csv_dict:
-                csv_dict[obj_id] = {}
-            obj_dict = csv_dict[obj_id]
-            if name in obj_dict:
-                if isinstance(obj_dict[name], str):
-                    obj_dict[name] = [obj_dict[name]]
-                obj_dict[name].append(value)
-            else:
-                obj_dict[name] = value
-        # Write file for this class
+def write_csv_dict(cur,csv_dict,folder,cls_name):
+            # Write file for this class
         if len(csv_dict.keys()) > 0:
             filename = os.path.join(folder, "%s.csv"%cls_name)
             print("Writing %s"%filename)
@@ -377,8 +296,138 @@ def write_object_report(coad_obj, folder=None):
                     csvwriter.writerow(row)
         else:
             print("Class %s has no object data"%cls_name)
-        #print csv_dict
+
+def create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,tagset):
+    csv_dict = {}
+    # Get attributes
+    istart = 0
+    delta = 999 #max number of sql variables
+    while istart < len(obj_list_super): # this breaks on large datasets, so limit query sizes...
+        obj_list = obj_list_super[istart:istart+delta]
+        #start_time = time.time()
+        cur.execute("""SELECT ad.object_id, a.name, ad.value FROM attribute_data ad
+            INNER JOIN attribute a ON a.attribute_id=ad.attribute_id
+            WHERE ad.object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
+        #print("--- %s seconds ---" % (time.time() - start_time))
+        for row in cur.fetchall():
+            if row[0] not in csv_dict:
+                csv_dict[row[0]] = {}
+            obj_dict = csv_dict[row[0]]
+            if row[1] in obj_dict:
+                if isinstance(obj_dict[row[1]], str):
+                    obj_dict[row[1]] = [obj_dict[row[1]]]
+                obj_dict[row[1]].append(row[2])
+            else:
+                obj_dict[row[1]]=row[2]
+        istart += delta
+    # New way to get properties and text
+    for obj_id in obj_list_super:
+        obj = coad_obj.coad.get_by_object_id(obj_id)
+        #for o_props in (obj.get_properties(), obj.get_text()):
+        o_props = obj.get_properties()
+        # By object, get_properties and get_text returns a dict of tag:propname:value(s)
+        # Needs to be transformed to propname:tag:values
+        if obj_id not in csv_dict:
+            csv_dict[obj_id] = {}
+        props_dict = dict([[s.split('.',1)[1],s] for s in list(o_props.keys())])
+        cur.execute("""SELECT o.object_id, o.name FROM object o
+            WHERE o.name IN (%s)"""%",".join(["?"]*len(props_dict)),list(props_dict.keys()))
+        props_dict = dict([[i[0],props_dict[i[1]]] for i in cur.fetchall()])
+        filtered_props = [props_dict[i] for i in list(set(props_dict.keys()).intersection(all_interesting_objs))]
+
+        for (tagname, pdict) in o_props.items():
+            if tagname in filtered_props:
+                for (propname, values) in pdict.items():
+                    if propname not in csv_dict[obj_id]:
+                        csv_dict[obj_id][propname] = {}
+                    if tagname in csv_dict[obj_id][propname]:
+                        print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
+                    csv_dict[obj_id][propname][tagname] = values
+        o_props = obj.get_text()
+        # Text objects overwrite properties, so rename property to propname(text)
+        if obj_id not in csv_dict:
+            csv_dict[obj_id] = {}
+        for (tagname, pdict) in o_props.items():
+            [tagclass,tagval] = tagname.split('.',1)
+            value = coad_obj.coad[tagclass][tagval].meta['object_id']
+            if value not in all_interesting_objs: #add tags that dont exist in classmap to a new map, then append existing csv's or write new ones
+                tagset = tagset | set([value])
+            for (propname, values) in pdict.items():
+                propname += "(text)"
+                if propname not in csv_dict[obj_id]:
+                    csv_dict[obj_id][propname] = {}
+                if tagname in csv_dict[obj_id][propname]:
+                    print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
+                csv_dict[obj_id][propname][tagname] = values
+
+    # Get tags
+    # Get children listed under class name
+    istart = 0
+    delta = 999 #max number of sql variables
+    while istart < len(obj_list_super): # this breaks on large datasets, so limit query sizes...
+        obj_list = obj_list_super[istart:istart+delta]
+        #start_time = time.time()
+        cur.execute("""SELECT m.parent_object_id, c.name, o.name FROM membership m
+            INNER JOIN class c ON c.class_id=m.child_class_id
+            INNER JOIN object o ON o.object_id=m.child_object_id
+            WHERE m.parent_object_id IN (%s)"""%",".join(["?"]*len(obj_list)),obj_list)
+        for row in cur.fetchall():
+            (obj_id, name, value) = row
+            if obj_id not in csv_dict:
+                csv_dict[obj_id] = {}
+            obj_dict = csv_dict[obj_id]
+            if name in obj_dict:
+                if isinstance(obj_dict[name],basestring):
+                    obj_dict[name] = [obj_dict[name]]
+                obj_dict[name].append(value)
+            else:
+                obj_dict[name] = value
+        istart += delta
+    return csv_dict, tagset
+
+def create_class_map(cur,interesting_objs):
+    class_map = {}
+    for c_obj in interesting_objs:
+        cur.execute("""SELECT c.name FROM object o
+            INNER JOIN class c ON c.class_id=o.class_id
+            WHERE o.object_id=?""",(c_obj,))
+        t_cls = cur.fetchone()[0]
+        if t_cls not in class_map:
+            class_map[t_cls] = []
+        class_map[t_cls].append(c_obj)
+    return class_map
+
+def write_object_report(coad_obj, folder=None):
+    """Retrieve all associated objects to coad_obj, pull in attributes, properties,
+    and texts.  Write as a series of CSV files in folder.
+    """
+    interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
+    cur = coad_obj.coad.dbcon.cursor()
+    if folder is None:
+        folder = coad_obj.meta['name']
+    print("Writing report on %s objects to %s"%(len(interesting_objs), folder))
+    if not os.path.isdir(folder):
+        print("Creating report folder %s"%folder)
+        os.makedirs(folder)
+    # Create class mapping dict
+    class_map = create_class_map(cur,interesting_objs)
+    all_interesting_objs = set([item for sublist in class_map.values() for item in sublist])
+    tagset = set()
+    for cls_name, obj_list_super in class_map.items():
+        #for obj_id in class_map[cls_name]:
+        csv_dict, tagset = create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,tagset)
+        write_csv_dict(cur,csv_dict,folder,cls_name)
     #print class_map
+    
+    #do it again for the objects identified with tags
+    tag_class_map = create_class_map(cur,tagset)
+    tag_all_interesting_objs = set([item for sublist in tag_class_map.values() for item in sublist])
+    tag_tagset = set()
+    for tag_cls_name, tag_obj_list_super in tag_class_map.items():
+        #for obj_id in class_map[cls_name]:
+        tag_csv_dict, tag_tagset = create_csv_dict(coad_obj,tag_cls_name,cur,tag_obj_list_super,tag_all_interesting_objs,tag_tagset)
+        write_csv_dict(cur,tag_csv_dict,folder,tag_cls_name)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Export csv files for a specific PLEXOS input model")
