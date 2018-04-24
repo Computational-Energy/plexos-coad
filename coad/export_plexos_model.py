@@ -269,7 +269,7 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
         total_set = new_obj_set | total_set
     return total_set
 
-def write_csv_dict(cur,csv_dict,folder,cls_name):
+def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
             # Write file for this class
         if len(csv_dict.keys()) > 0:
             filename = os.path.join(folder, "%s.csv"%cls_name)
@@ -290,6 +290,22 @@ def write_csv_dict(cur,csv_dict,folder,cls_name):
                     # Write row
                     for x in colnames:
                         if x in dat:
+                            if isinstance(dat[x],dict):
+                                ro ={}
+                                read_dat = {}
+                                for ditem in dat[x]:
+                                    dnames = ditem.split('.',1)
+                                    if dnames[0] == 'Scenario':
+                                        if 'Read Order' in coad_obj.coad[dnames[0]][dnames[1]]:
+                                            ro[coad_obj.coad[dnames[0]][dnames[1]]['Read Order']] = ditem
+                                        else:
+                                            ro['0_' + dnames[1]] = ditem
+                                    else:
+                                        read_dat[dnames[1]] = ditem #collect non scenario items
+                                rokeys = list(ro.keys())
+                                rokeys.sort()
+                                rokeys = rokeys+list(read_dat.keys()) #put non scenario items at end
+                                dat[x] = dat[x][ro[rokeys[-1]]] #only write the last value
                             row.append(dat[x])
                         else:
                             row.append("")
@@ -416,7 +432,7 @@ def write_object_report(coad_obj, folder=None):
     for cls_name, obj_list_super in class_map.items():
         #for obj_id in class_map[cls_name]:
         csv_dict, tagset = create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,tagset)
-        write_csv_dict(cur,csv_dict,folder,cls_name)
+        write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name)
     #print class_map
     
     #do it again for the objects identified with tags
@@ -426,7 +442,7 @@ def write_object_report(coad_obj, folder=None):
     for tag_cls_name, tag_obj_list_super in tag_class_map.items():
         #for obj_id in class_map[cls_name]:
         tag_csv_dict, tag_tagset = create_csv_dict(coad_obj,tag_cls_name,cur,tag_obj_list_super,tag_all_interesting_objs,tag_tagset)
-        write_csv_dict(cur,tag_csv_dict,folder,tag_cls_name)
+        write_csv_dict(coad_obj,cur,tag_csv_dict,folder,tag_cls_name)
 
 
 def main():
