@@ -291,8 +291,8 @@ def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
                     for x in colnames:
                         if x in dat:
                             if isinstance(dat[x],dict):
-                                ro ={}
-                                read_dat = {}
+                                ro = {}
+                                rf = {}
                                 for ditem in dat[x]:
                                     dnames = ditem.split('.',1)
                                     if dnames[0] == 'Scenario':
@@ -301,10 +301,11 @@ def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
                                         else:
                                             ro['0_' + dnames[1]] = ditem
                                     else:
-                                        read_dat[dnames[1]] = ditem #collect non scenario items
+                                        rf[dnames[1]] = ditem
                                 rokeys = list(ro.keys())
                                 rokeys.sort()
-                                rokeys = rokeys+list(read_dat.keys()) #put non scenario items at end
+                                rokeys = list(rf.keys()) + rokeys
+                                ro.update(rf)
                                 dat[x] = dat[x][ro[rokeys[-1]]] #only write the last value
                             row.append(dat[x])
                         else:
@@ -353,12 +354,18 @@ def create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,ta
 
         for (tagname, pdict) in o_props.items():
             if tagname in filtered_props:
+                [tagclass,tagval] = tagname.split('.',1)
                 for (propname, values) in pdict.items():
+                    if tagclass not in ['Scenario','System']:
+                        if tagclass in ['Data File','Escalator']:
+                            values = tagname
+                        propname += "." +tagclass
                     if propname not in csv_dict[obj_id]:
                         csv_dict[obj_id][propname] = {}
                     if tagname in csv_dict[obj_id][propname]:
                         print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
                     csv_dict[obj_id][propname][tagname] = values
+        
         o_props = obj.get_text()
         # Text objects overwrite properties, so rename property to propname(text)
         if obj_id not in csv_dict:
