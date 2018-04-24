@@ -282,11 +282,12 @@ def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
             with open(filename, 'w') as csvfile:
                 csvwriter = csv.writer(csvfile)
                 # Write header
-                csvwriter.writerow(['object'] + colnames)
+                csvwriter.writerow(['object','category'] + colnames)
                 for (oid, dat) in csv_dict.items():
                     # Get object name
                     cur.execute("SELECT name FROM object o WHERE object_id=?", (oid,))
                     row = [cur.fetchone()[0]]
+                    row.append(coad_obj.coad.get_by_object_id(oid).get_category())
                     # Write row
                     for x in colnames:
                         if x in dat:
