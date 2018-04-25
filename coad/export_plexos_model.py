@@ -272,41 +272,6 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
         total_set = new_obj_set | total_set
     return total_set
 
-def get_related_objects_old(coad_obj, obj_id, obj_set=None):
-    """Recursively get all object related to passed object
-        Searches:
-            - children in membership
-            - tagged data
-
-        The system object (obj_id = 1) is ignored in all cases
-
-        Return set of obj_ids with duplicates removed
-    """
-    #if obj_id == '1':
-        # Ignore System object
-        # return obj_set
-    if obj_set is None:
-        obj_set = set([1])
-    cur = coad_obj.dbcon.cursor()
-    cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (obj_id,))
-    ret_list = []
-    for row in cur.fetchall():
-        ret_list.append(row[0])
-    cur.execute("""SELECT m.child_object_id FROM tag t
-    INNER JOIN property p ON p.property_id=d.property_id
-    INNER JOIN data d ON t.data_id=d.data_id
-    INNER JOIN membership m ON m.membership_id=d.membership_id
-    WHERE t.object_id=?""", (obj_id,))
-    for row in cur.fetchall():
-        ret_list.append(row[0])
-    ret_set = set(ret_list)
-    new_obj_ids = ret_set - obj_set
-    total_set = ret_set | obj_set
-    for o_id in new_obj_ids:
-        new_obj_set = get_related_objects(coad_obj, o_id, total_set)
-        total_set = new_obj_set | total_set
-    return total_set
-
 def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
             # Write file for this class
         if len(csv_dict.keys()) > 0:
