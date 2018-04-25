@@ -244,24 +244,27 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
 
         Return set of obj_ids with duplicates removed
     """
-    #if obj_id == '1':
+    
+    if obj_id == '1':
         # Ignore System object
-        # return obj_set
-    if obj_set is None:
-        obj_set = set([1])
+        return obj_set
     cur = coad_obj.dbcon.cursor()
+    if obj_set is None:
+        cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=1")
+        sys_members = set([row[0] for row in cur.fetchall()])
+        cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id!=1")
+        non_sys_members = set([row[0] for row in cur.fetchall()])
+        obj_set = sys_members - non_sys_members
     cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (obj_id,))
-    ret_list = []
-    for row in cur.fetchall():
-        ret_list.append(row[0])
+    ret_set = set([row[0] for row in cur.fetchall()])
+    #for row in cur.fetchall():
+    #    ret_list.append(row[0])
     cur.execute("""SELECT m.child_object_id FROM tag t
     INNER JOIN property p ON p.property_id=d.property_id
     INNER JOIN data d ON t.data_id=d.data_id
     INNER JOIN membership m ON m.membership_id=d.membership_id
     WHERE t.object_id=?""", (obj_id,))
-    for row in cur.fetchall():
-        ret_list.append(row[0])
-    ret_set = set(ret_list)
+    ret_set = ret_set | set([row[0] for row in cur.fetchall()])
     new_obj_ids = ret_set - obj_set
     total_set = ret_set | obj_set
     for o_id in new_obj_ids:
