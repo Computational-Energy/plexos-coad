@@ -13,12 +13,18 @@ except NameError:
 
 #####
 # export the data associated with a plexos input model and write as accessable csv files
+# NOTE: this currently is only reliable for an xml that has been created by running a PLEXOS
+#     model whith the 'write input' option has been enabled. 
 #
 # USAGE:
 #  from coad.COAD import COAD
-#  from coad import export_plexos_model
+#  from coad.export_plexos_model import write_object_report
+#  from coad.export_plexos_model import get_all_objects
 #  c = COAD(<filename for xml or db here>)
-#  export_plexos_model.write_object_report(c['Model']['modelname'])
+#  all_objs = get_all_objects(c['System']['System'])
+#  write_object_report(c['System']['System'],interesting_objects = all_objects)
+# Alternatively, use the cli:
+#  python path/to/this/export_plexos_model.py -f filename.xml
 
 
 # TODO: add scenario read order (default=0, if == 0: read_order='alphabetical')
@@ -272,6 +278,20 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
         total_set = new_obj_set | total_set
     return total_set
 
+def get_all_objects(coad_obj):
+    """get all objects
+
+        Return set of obj_ids with duplicates removed
+    """
+    
+    cur = coad_obj.dbcon.cursor()
+    
+    cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (1,))
+    all_objs = set([row[0] for row in cur.fetchall()])
+
+    return all_objs
+
+
 def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
             # Write file for this class
         if len(csv_dict.keys()) > 0:
@@ -424,11 +444,14 @@ def create_class_map(cur,interesting_objs):
         class_map[t_cls].append(c_obj)
     return class_map
 
-def write_object_report(coad_obj, folder=None):
+def write_object_report(coad_obj, interesting_objs = None,folder=None):
     """Retrieve all associated objects to coad_obj, pull in attributes, properties,
     and texts.  Write as a series of CSV files in folder.
     """
-    interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
+
+    if interesting_objs is None:
+        interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
+    
     cur = coad_obj.coad.dbcon.cursor()
     if folder is None:
         folder = coad_obj.meta['name']
@@ -460,6 +483,7 @@ def main():
     parser = argparse.ArgumentParser(description="Export csv files for a specific PLEXOS input model")
 
     parser.add_argument('-f', '--filepath', help='path to PLEXOS input .xml or .db')
+    parser.add_argument('-a', '--all', help='all objects in dataset',default='True')
     parser.add_argument('-m', '--models', help='list of models to export',default='')
     parser.add_argument('-c', '--filter_cls', help='optional-class of filter string, e.g. Region, Zone',default='')
     parser.add_argument('-n', '--filter_val', help='optional-name of region or zone to extract',default='')
@@ -467,11 +491,17 @@ def main():
 
     args = parser.parse_args()
 
+    from coad.COAD import COAD
+    from coad.export_plexos_model import write_object_report
 
     coad = COAD(args.filepath)
-    export_objects= get_model_items(coad,models=args.models,filter_cls=args.filter_cls,filter_val=args.filter_val)
-    data = export_data(coad,export_objects)
-    write_tables(data,args.output_folder)
+    if args.all:
+        all_objs = get_all_objects(coad)
+        write_object_report(coad['System']['System'],interesting_objs = all_objs, folder = args.output_folder)
+    else:
+        for m in args.models:
+            write_object_report(coad['Model'][m],interesting_objs = None, folder = args.output_folder)
+    
 
 
 if __name__ == "__main__":
