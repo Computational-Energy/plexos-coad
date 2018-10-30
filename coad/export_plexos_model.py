@@ -479,6 +479,16 @@ def write_object_report(coad_obj, interesting_objs = None,folder=None):
         write_csv_dict(coad_obj,cur,tag_csv_dict,folder,tag_cls_name)
 
 
+    #do it again for the objects identified with tags
+    tag_class_map = create_class_map(cur,tagset)
+    tag_all_interesting_objs = set([item for sublist in tag_class_map.values() for item in sublist])
+    tag_tagset = set()
+    for tag_cls_name, tag_obj_list_super in tag_class_map.items():
+        #for obj_id in class_map[cls_name]:
+        tag_csv_dict, tag_tagset = create_csv_dict(coad_obj,tag_cls_name,cur,tag_obj_list_super,tag_all_interesting_objs,tag_tagset)
+        write_csv_dict(coad_obj,cur,tag_csv_dict,folder,tag_cls_name)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Export csv files for a specific PLEXOS input model")
 
