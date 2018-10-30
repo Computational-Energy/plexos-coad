@@ -13,14 +13,6 @@ except NameError:
 
 #####
 # export the data associated with a plexos input model and write as accessable csv files
-<<<<<<< HEAD
-#
-# USAGE:
-#  from coad.COAD import COAD
-#  from coad import export_plexos_model
-#  c = COAD(<filename for xml or db here>)
-#  export_plexos_model.write_object_report(c['Model']['modelname'])
-=======
 # NOTE: this currently is only reliable for an xml that has been created by running a PLEXOS
 #     model whith the 'write input' option has been enabled.
 #
@@ -33,7 +25,6 @@ except NameError:
 #  write_object_report(c['System']['System'],interesting_objects = all_objects)
 # Alternatively, use the cli:
 #  python path/to/this/export_plexos_model.py -f filename.xml
->>>>>>> a07ca8e65f49918a38263c8143df83a43a7a8b4f
 
 
 # TODO: add scenario read order (default=0, if == 0: read_order='alphabetical')
