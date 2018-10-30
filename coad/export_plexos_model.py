@@ -13,12 +13,27 @@ except NameError:
 
 #####
 # export the data associated with a plexos input model and write as accessable csv files
+<<<<<<< HEAD
 #
 # USAGE:
 #  from coad.COAD import COAD
 #  from coad import export_plexos_model
 #  c = COAD(<filename for xml or db here>)
 #  export_plexos_model.write_object_report(c['Model']['modelname'])
+=======
+# NOTE: this currently is only reliable for an xml that has been created by running a PLEXOS
+#     model whith the 'write input' option has been enabled.
+#
+# USAGE:
+#  from coad.COAD import COAD
+#  from coad.export_plexos_model import write_object_report
+#  from coad.export_plexos_model import get_all_objects
+#  c = COAD(<filename for xml or db here>)
+#  all_objs = get_all_objects(c['System']['System'])
+#  write_object_report(c['System']['System'],interesting_objects = all_objects)
+# Alternatively, use the cli:
+#  python path/to/this/export_plexos_model.py -f filename.xml
+>>>>>>> a07ca8e65f49918a38263c8143df83a43a7a8b4f
 
 
 # TODO: add scenario read order (default=0, if == 0: read_order='alphabetical')
@@ -244,24 +259,27 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
 
         Return set of obj_ids with duplicates removed
     """
-    #if obj_id == '1':
+
+    if obj_id == '1':
         # Ignore System object
-        # return obj_set
-    if obj_set is None:
-        obj_set = set([1])
+        return obj_set
     cur = coad_obj.dbcon.cursor()
+    if obj_set is None:
+        cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=1")
+        sys_members = set([row[0] for row in cur.fetchall()])
+        cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id!=1")
+        non_sys_members = set([row[0] for row in cur.fetchall()])
+        obj_set = sys_members - non_sys_members
     cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (obj_id,))
-    ret_list = []
-    for row in cur.fetchall():
-        ret_list.append(row[0])
+    ret_set = set([row[0] for row in cur.fetchall()])
+    #for row in cur.fetchall():
+    #    ret_list.append(row[0])
     cur.execute("""SELECT m.child_object_id FROM tag t
     INNER JOIN property p ON p.property_id=d.property_id
     INNER JOIN data d ON t.data_id=d.data_id
     INNER JOIN membership m ON m.membership_id=d.membership_id
     WHERE t.object_id=?""", (obj_id,))
-    for row in cur.fetchall():
-        ret_list.append(row[0])
-    ret_set = set(ret_list)
+    ret_set = ret_set | set([row[0] for row in cur.fetchall()])
     new_obj_ids = ret_set - obj_set
     total_set = ret_set | obj_set
     for o_id in new_obj_ids:
@@ -269,7 +287,21 @@ def get_related_objects(coad_obj, obj_id, obj_set=None):
         total_set = new_obj_set | total_set
     return total_set
 
-def write_csv_dict(cur,csv_dict,folder,cls_name):
+def get_all_objects(coad_obj):
+    """get all objects
+
+        Return set of obj_ids with duplicates removed
+    """
+
+    cur = coad_obj.dbcon.cursor()
+
+    cur.execute("SELECT child_object_id FROM membership WHERE parent_object_id=?", (1,))
+    all_objs = set([row[0] for row in cur.fetchall()])
+
+    return all_objs
+
+
+def write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name):
             # Write file for this class
         if len(csv_dict.keys()) > 0:
             filename = os.path.join(folder, "%s.csv"%cls_name)
@@ -282,14 +314,32 @@ def write_csv_dict(cur,csv_dict,folder,cls_name):
             with open(filename, 'w') as csvfile:
                 csvwriter = csv.writer(csvfile)
                 # Write header
-                csvwriter.writerow(['object'] + colnames)
+                csvwriter.writerow(['object','category'] + colnames)
                 for (oid, dat) in csv_dict.items():
                     # Get object name
                     cur.execute("SELECT name FROM object o WHERE object_id=?", (oid,))
                     row = [cur.fetchone()[0]]
+                    row.append(coad_obj.coad.get_by_object_id(oid).get_category())
                     # Write row
                     for x in colnames:
                         if x in dat:
+                            if isinstance(dat[x],dict):
+                                ro = {}
+                                rf = {}
+                                for ditem in dat[x]:
+                                    dnames = ditem.split('.',1)
+                                    if dnames[0] == 'Scenario':
+                                        if 'Read Order' in coad_obj.coad[dnames[0]][dnames[1]]:
+                                            ro[coad_obj.coad[dnames[0]][dnames[1]]['Read Order']] = ditem
+                                        else:
+                                            ro['0_' + dnames[1]] = ditem
+                                    else:
+                                        rf[dnames[1]] = ditem
+                                rokeys = list(ro.keys())
+                                rokeys.sort()
+                                rokeys = list(rf.keys()) + rokeys
+                                ro.update(rf)
+                                dat[x] = dat[x][ro[rokeys[-1]]] #only write the last value
                             row.append(dat[x])
                         else:
                             row.append("")
@@ -337,12 +387,18 @@ def create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,ta
 
         for (tagname, pdict) in o_props.items():
             if tagname in filtered_props:
+                [tagclass,tagval] = tagname.split('.',1)
                 for (propname, values) in pdict.items():
+                    if tagclass not in ['Scenario','System']:
+                        if tagclass in ['Data File','Escalator']:
+                            values = tagname
+                        propname += "." +tagclass
                     if propname not in csv_dict[obj_id]:
                         csv_dict[obj_id][propname] = {}
                     if tagname in csv_dict[obj_id][propname]:
                         print("Duplicate name: %s Object: %s Tag: %s Oldval: %s Newval: %s "%(propname, obj_id, tagname, csv_dict[obj_id][propname][tagname], values))
                     csv_dict[obj_id][propname][tagname] = values
+
         o_props = obj.get_text()
         # Text objects overwrite properties, so rename property to propname(text)
         if obj_id not in csv_dict:
@@ -397,11 +453,14 @@ def create_class_map(cur,interesting_objs):
         class_map[t_cls].append(c_obj)
     return class_map
 
-def write_object_report(coad_obj, folder=None):
+def write_object_report(coad_obj, interesting_objs = None,folder=None):
     """Retrieve all associated objects to coad_obj, pull in attributes, properties,
     and texts.  Write as a series of CSV files in folder.
     """
-    interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
+
+    if interesting_objs is None:
+        interesting_objs = get_related_objects(coad_obj.coad, coad_obj.meta['object_id'])
+
     cur = coad_obj.coad.dbcon.cursor()
     if folder is None:
         folder = coad_obj.meta['name']
@@ -411,14 +470,14 @@ def write_object_report(coad_obj, folder=None):
         os.makedirs(folder)
     # Create class mapping dict
     class_map = create_class_map(cur,interesting_objs)
-    all_interesting_objs = set([item for sublist in class_map.values() for item in sublist])
+    all_interesting_objs = set([item for sublist in class_map.values() for item in sublist]) | set([1])
     tagset = set()
     for cls_name, obj_list_super in class_map.items():
         #for obj_id in class_map[cls_name]:
         csv_dict, tagset = create_csv_dict(coad_obj,cls_name,cur,obj_list_super,all_interesting_objs,tagset)
-        write_csv_dict(cur,csv_dict,folder,cls_name)
+        write_csv_dict(coad_obj,cur,csv_dict,folder,cls_name)
     #print class_map
-    
+
     #do it again for the objects identified with tags
     tag_class_map = create_class_map(cur,tagset)
     tag_all_interesting_objs = set([item for sublist in tag_class_map.values() for item in sublist])
@@ -426,13 +485,14 @@ def write_object_report(coad_obj, folder=None):
     for tag_cls_name, tag_obj_list_super in tag_class_map.items():
         #for obj_id in class_map[cls_name]:
         tag_csv_dict, tag_tagset = create_csv_dict(coad_obj,tag_cls_name,cur,tag_obj_list_super,tag_all_interesting_objs,tag_tagset)
-        write_csv_dict(cur,tag_csv_dict,folder,tag_cls_name)
+        write_csv_dict(coad_obj,cur,tag_csv_dict,folder,tag_cls_name)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Export csv files for a specific PLEXOS input model")
 
     parser.add_argument('-f', '--filepath', help='path to PLEXOS input .xml or .db')
+    parser.add_argument('-a', '--all', help='all objects in dataset',default='True')
     parser.add_argument('-m', '--models', help='list of models to export',default='')
     parser.add_argument('-c', '--filter_cls', help='optional-class of filter string, e.g. Region, Zone',default='')
     parser.add_argument('-n', '--filter_val', help='optional-name of region or zone to extract',default='')
@@ -440,11 +500,17 @@ def main():
 
     args = parser.parse_args()
 
+    from coad.COAD import COAD
+    from coad.export_plexos_model import write_object_report
 
     coad = COAD(args.filepath)
-    export_objects= get_model_items(coad,models=args.models,filter_cls=args.filter_cls,filter_val=args.filter_val)
-    data = export_data(coad,export_objects)
-    write_tables(data,args.output_folder)
+    if args.all:
+        all_objs = get_all_objects(coad)
+        write_object_report(coad['System']['System'],interesting_objs = all_objs, folder = args.output_folder)
+    else:
+        for m in args.models:
+            write_object_report(coad['Model'][m],interesting_objs = None, folder = args.output_folder)
+
 
 
 if __name__ == "__main__":
