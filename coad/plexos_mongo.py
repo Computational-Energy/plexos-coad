@@ -125,7 +125,11 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
         doc = {}
         for el_data in elem.getchildren():
             el_name = el_data.tag[nsl:]
-            doc[el_name] = el_data.text
+            if el_data.text is None:
+                LOGGER.warn("Found null value for %s:%s, inserting blank string", collection_name, el_data.tag[nsl:])
+                doc[el_name] = ""
+            else:
+                doc[el_name] = el_data.text
             # Make sure order is saved in META_DOC
             if el_name not in e_order[collection_name]:
                 e_order[collection_name].append(el_name)

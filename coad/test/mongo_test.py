@@ -187,6 +187,19 @@ class TestDB(unittest.TestCase):
         result = coad['Data File']['4HA_UC'].get_text()
         self.assertEqual(result, expected)
 
+    def test_blank_elements(self):
+        '''Make sure blank elements are saved properly
+        '''
+        filename = 'coad/test/118-Bus_with_blanks.xml'
+        pre = COAD(filename)
+        cat = pre.db['category'].find_one({'category_id':'49'})
+        val = cat['name']
+        self.assertEqual(val, "")
+        pre.save('coad/test/118-Bus_with_blanks_test.xml')
+        post = COAD('coad/test/118-Bus_with_blanks_test.xml')
+        cat = post.db['category'].find_one({'category_id':'49'})
+        val = cat['name']
+        self.assertEqual(val, "")
 
 
 class TestModifications(unittest.TestCase):
