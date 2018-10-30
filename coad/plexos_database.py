@@ -118,7 +118,11 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
                 el_data.tag = el_data.tag.decode("utf-8")
                 # el_data.text = el_data.text.decode("utf-8")
             col_names.append(el_data.tag[nsl:])
-            col_values.append(el_data.text)
+            if el_data.text is None:
+                LOGGER.warn("Found null value for %s:%s, inserting blank string", table_name, el_data.tag[nsl:])
+                col_values.append("")
+            else:
+                col_values.append(el_data.text)
         # Check for new tables
         if table_name not in tables.keys():
             cols = []

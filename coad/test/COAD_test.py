@@ -190,6 +190,19 @@ class TestObjectDict(unittest.TestCase):
         newobj = oldobj.copy()
         self.assertNotEqual(oldobj.meta['name'],newobj.meta['name'])
 
+    def test_blank_elements(self):
+        '''Make sure blank elements are saved properly
+        '''
+        filename = 'coad/test/118-Bus_with_blanks.xml'
+        pre = COAD(filename)
+        cur = pre.dbcon.execute("SELECT name FROM category WHERE category_id=49")
+        val = cur.fetchone()[0]
+        self.assertEqual(val, "")
+        pre.save('coad/test/118-Bus_with_blanks_test.xml')
+        post = COAD('coad/test/118-Bus_with_blanks_test.xml')
+        cur = post.dbcon.execute("SELECT name FROM category WHERE category_id=49")
+        val = cur.fetchone()[0]
+        self.assertEqual(val, "")
 
 class TestObjectDictProperties(unittest.TestCase):
     '''Test properties using multiple input files
