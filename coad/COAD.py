@@ -457,6 +457,13 @@ class ClassDict(collections.MutableMapping):
             raise Exception(msg%(self.meta['class_id'], child_class_id))
         return str(collection[0])
 
+    def get_category_id(self, category):
+        ''' Return the category id for objects of this class based on category name
+        '''
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT category_id FROM category WHERE class_id=? AND name=?", [self.meta['class_id'], category])
+        return str(cur.fetchone()[0])
+
     def get_categories(self):
         ''' Return a list of category dicts available for objects of this class, ordered
         by rank.
@@ -472,6 +479,7 @@ class ClassDict(collections.MutableMapping):
 
     def add_category(self, name):
         ''' Add a new category to this class, not allowing duplicated names in class
+            Returns category id
         '''
         # Get existing categories for class
         cur = self.coad.dbcon.cursor()
@@ -486,6 +494,60 @@ class ClassDict(collections.MutableMapping):
         vls = [name, str(lastrank+1), self.meta['class_id']]
         cur.execute(cmd, vls)
         self.coad.dbcon.commit()
+        return self.get_category_id(name)
+
+    def new(self, name, category="-"):
+        ''' Create a new blank object who is a child of System.System
+
+        Args:
+          name: Name for the new object of this class
+          category: Name of category for new object, will create if does not exist
+        Returns:
+          The newly created object
+        '''
+        # Verify there is no existing object of this class with this name
+        if name in list(self.keys()):
+            raise Exception("Duplicate name '%s' for same class"%name)
+        # Get category id or create a new one
+        try:
+            catid = self.get_category_id(category)
+        except:
+            catid = self.add_category(category)
+        # Get all object column names
+        cur = self.coad.dbcon.cursor()
+        cur.execute("SELECT * FROM object LIMIT 1")
+        row_keys = [k[0] for k in cur.description]
+        # Add required data for object
+        cols = []
+        vals = []
+        for k in row_keys:
+            # Ignore object_id
+            if k == 'object_id':
+                continue
+            cols.append(k)
+            val = ""
+            # GUID is new in version 7, and must be unique across all objects
+            if k == 'GUID':
+                val = str(uuid.uuid4())
+            elif k == 'class_id':
+                val = self.meta['class_id']
+            elif k == 'name':
+                if name is None:
+                    name = "New %s %s"%(self.meta['name'], str(uuid.uuid4()))
+                val = name
+            elif k == 'category_id':
+                val = catid
+            vals.append(val)
+        cur = self.coad.dbcon.cursor()
+        fill = ','.join('?'*len(cols))
+        cmd = "INSERT INTO object (%s) VALUES (%s)"%(','.join(["'%s'"%c for c in cols]), fill)
+        _logger.info("Creating new model with data %s", vals)
+        cur.execute(cmd, vals)
+        self.coad.dbcon.commit()
+        # Add as child to System.System
+        newobj = self[name]
+        self.coad["System"]["System"].set_children(newobj, replace=False)
+        return newobj
 
     # TODO: Any need for remove category?  Would have to change objects that use
     # the deleted category to the default
@@ -840,8 +902,7 @@ class ObjectDict(collections.MutableMapping):
             return mapped_data
 
     def set_property(self, name, value, tag='System.System'):
-        '''Set the value of a property by name
-        Limited to modifying existing values.  Will not add new data.
+        '''Set the value of a property by name.  Inserts new data if needed.
         '''
         stime = time.time()
         cur = self.coad.dbcon.cursor()
@@ -974,11 +1035,49 @@ class ObjectDict(collections.MutableMapping):
     def set_properties(self, new_dict):
         '''Set all the propery values present in dict
 
-            NOTE: This is not transactional.  A failure may leave some values set,
-            others not set.
+            NOTE: This does not support tags and is not transactional.  A failure
+                  may leave some values set, others not set.
         '''
         for name, value in new_dict.items():
             self.set_property(name, value)
+
+    def tag_property(self, name, tag):
+        '''Tag a property with a object.  System.System throws an exception.
+            Use untag_property to fill back system properties.
+        '''
+        tag_obj = self.coad.get_by_hierarchy(tag)
+        if tag_obj.meta['object_id'] == '1':
+            raise Exception("Cannot tag with System object")
+        cur = self.coad.dbcon.cursor()
+        # Need to find data_ids where they don't have tag_object_id matching tag_obj
+        # This returns data_ids where other objects have tagged the same data
+        cmd = """SELECT data_id FROM property_view WHERE child_object_id=?
+                 AND name=? AND data_id NOT IN (SELECT data_id FROM property_view WHERE tag_object_id=?)
+                 GROUP BY data_id"""
+        cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id']])
+        all_data_ids = [x[0] for x in list(cur.fetchall())]
+        cmd = "INSERT INTO tag (data_id, object_id) VALUES (?, ?)"
+        _logger.info("Data to be fed %s", [zip(all_data_ids,[tag_obj.meta['object_id']]*len(all_data_ids))])
+        cur.executemany(cmd, zip(all_data_ids,[tag_obj.meta['object_id']]*len(all_data_ids)))
+        self.coad.dbcon.commit()
+
+    def untag_property(self, name, tag="System.System"):
+        '''Remove tag for a given property and tag.  TBD if tag is System.System
+            Need some way to remove all tags?
+        '''
+        tag_obj = self.coad.get_by_hierarchy(tag)
+        if tag_obj.meta['object_id'] == 1:
+            raise Exception("Cannot untag System object")
+        cur = self.coad.dbcon.cursor()
+        cmd = "SELECT data_id FROM property_view WHERE child_object_id=? AND name=? AND tag_object_id=?"
+        cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id']])
+        all_data_ids = [x[0] for x in list(cur.fetchall())]
+        if len(all_data_ids) == 0:
+            _logger.warning("No properties untagged")
+        else:
+            cmd = "DELETE FROM tag WHERE data_id=? AND object_id=?"
+            cur.executemany(cmd, zip(all_data_ids, [tag_obj.meta['object_id']]*len(all_data_ids)))
+
 
     def get_text(self):
         '''Return a dict of all text set for this object along with any
@@ -1091,10 +1190,13 @@ class ObjectDict(collections.MutableMapping):
         msg = '    Class: {:<30}            ID: {}'.format(self.get_class().meta['name'],
                                                              self.meta['class_id'])
         print(spacing + msg)
+        msg = '    Category: {:<30}         ID: {}'.format(self.get_category(),
+                                                             self.meta['category_id'])
+        print(spacing + msg)
         if self.keys():
             print(spacing+'    Attributes set:')
-            for atr in self.items():
-                print(spacing+'        %s = %s'%atr)
+            for atrn in sorted(self.keys()):
+                print(spacing+'        %s = %s'%(atrn, self[atrn]))
         else:
             print(spacing+'    No attributes set')
         all_children = set([o.hierarchy for o in self.get_children()])
@@ -1118,7 +1220,7 @@ class ObjectDict(collections.MutableMapping):
             print(spacing+'    No peers')
         if len(children):
             print(spacing+'    Children (%s):'%len(children))
-            for k in children:
+            for k in sorted(children):
                 msg = '        '+k
                 print(spacing + msg)
                 #self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
