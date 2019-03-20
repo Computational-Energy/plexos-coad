@@ -16,6 +16,7 @@ Example:
 """
 import atexit
 import collections
+import logging
 import os
 import pymongo
 import subprocess
@@ -25,6 +26,7 @@ import uuid
 from . import plexos_mongo
 
 MONGODB_PROC = None
+_logger = logging.getLogger(__name__)
 
 class COAD(collections.MutableMapping):
     '''Edit models, horizons, memberships and object attributes of plexos data.
@@ -328,6 +330,12 @@ class ClassDict(collections.MutableMapping):
             raise Exception(msg%(self.meta['class_id'], child_class_id))
         return collection['collection_id']
 
+    def get_category_id(self, category):
+        ''' Return the category id for objects of this class based on category name
+        '''
+        categories_cur = self.coad.db['category'].find_one({'class_id':self.meta['class_id'], 'name':category})
+        return categories_cur['category_id']
+
     def get_categories(self):
         ''' Return a list of category dicts available for objects of this class, ordered
         by rank.
@@ -351,9 +359,49 @@ class ClassDict(collections.MutableMapping):
             lastrank = max(lastrank, int(cat['rank']))
         newcat = {'name':name, 'rank':str(lastrank+1), 'category_id':str(last_cat_id+1), 'class_id':self.meta['class_id']}
         self.coad.db['category'].insert(newcat)
-
+        return self.get_category_id(name)
     # TODO: Any need for remove category?  Would have to change objects that use
     # the deleted category to the default
+
+    def new(self, name, category="-"):
+        ''' Create a new object entry in the database.
+        '''
+        # Verify there is no existing object of this class with this name
+        if name in list(self.keys()):
+            raise Exception("Duplicate name '%s' for same class"%name)
+        # Get category id or create a new one
+        try:
+            catid = self.get_category_id(category)
+        except:
+            catid = self.add_category(category)
+        # Pull an object to find the attributes needed to fill
+        sample_obj = self.coad.db['object'].find_one({}, {'_id':0})
+        # Create new object_id
+        obj_id_list = self.coad.db['object'].find( {}, { '_id': 0, 'object_id':1 } )
+        last_obj_id = max(map(int, [x['object_id'] for x in obj_id_list]))
+        new_object_id = last_obj_id + 1;
+        new_obj = {}
+        for k in sample_obj.keys():
+            # Create new GUID if needed
+            # GUID has been put in some versions of Plexos
+            if 'GUID' == k:
+                new_obj[k] = str(uuid.uuid4())
+            elif 'object_id' == k:
+                new_obj[k] = str(new_object_id)
+            elif 'class_id' == k:
+                new_obj[k] = self.meta['class_id']
+            elif 'category_id' == k:
+                new_obj[k] = catid
+            elif 'name' == k:
+                if name is None:
+                    name = "New %s %s"%(self.meta['name'], str(uuid.uuid4()))
+                new_obj[k] = name
+            else:
+                new_obj[k] = ""
+        self.coad.db['object'].insert_one(new_obj)
+        newobj = self[name]
+        self.coad["System"]["System"].set_children(newobj, replace=False)
+        return newobj
 
 
 class ObjectDict(collections.MutableMapping):
@@ -392,13 +440,6 @@ class ObjectDict(collections.MutableMapping):
             raise Exception(msg%(key, self.meta['name'], self.clsdict.named_valid_attributes.keys()))
         att_id = self.clsdict.named_valid_attributes[key]
         self.clsdict.coad.db['attribute_data'].remove({'object_id':self.meta['object_id'], 'attribute_id':att_id}, True)
-        return
-        cur = self.coad.dbcon.cursor()
-        cmd = "DELETE FROM attribute_data WHERE object_id=? AND attribute_id=?"
-        vls = [self.meta['object_id'], self.valid_attributes[key]['attribute_id']]
-        cur.execute(cmd, vls)
-        self.coad.dbcon.commit()
-        del self.store[key]
 
     def __iter__(self):
         att_ids = self.clsdict.coad.db['attribute_data'].distinct('attribute_id', {'object_id':self.meta['object_id']})
@@ -750,6 +791,53 @@ class ObjectDict(collections.MutableMapping):
         for name, value in new_dict.items():
             self.set_property(name, value)
 
+    def tag_property(self, name, tag):
+        '''Tag a property with a object.  System.System throws an exception.
+            Use untag_property to fill back system properties.
+        '''
+        tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        if tag_obj.meta['object_id'] == '1':
+            raise Exception("Cannot tag with System object")
+        # Need to find data_ids where they don't have tag_object_id matching tag_obj
+        #members = self.clsdict.coad.db['property_view'].find({'child_object_id':self.meta['object_id']})
+        membership = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id']}, {'collection_id':1, 'membership_id':1})
+        if membership is None:
+            raise Exception("Unable to find membership for %s"%self.hierarchy)
+        prop = self.clsdict.coad.db['property'].find_one({'name':name, 'collection_id':membership['collection_id']})
+        # Data should exist for this property, if not raise an error
+        data_ids = self.clsdict.coad.db['data'].find({'property_id':prop["property_id"], 'membership_id': membership['membership_id']}, {'_id':0, 'data_id':1})
+        if data_ids.count() == 0:
+            raise Exception("No data matching '%s' for this object", name)
+        for data_id in data_ids:
+            # Make sure tag for this data_id and tag object_id does not already exist
+            tagtest = self.clsdict.coad.db['tag'].find_one({"data_id":data_id['data_id'], "object_id":tag_obj.meta['object_id']})
+            if tagtest is not None:
+                raise Exception("Duplicatd tag for data_id %s and object_id %s", data_id['data_id'], tag_obj.meta['object_id'])
+            self.clsdict.coad.db['tag'].insert({"data_id":data_id['data_id'], "object_id":tag_obj.meta['object_id']})
+
+    def untag_property(self, name, tag="System.System"):
+        '''Remove tag for a given property and tag.  TBD if tag is System.System
+            Need some way to remove all tags?
+        '''
+        tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
+        if tag_obj.meta['object_id'] == '1':
+            raise Exception("Cannot untag System object")
+        membership = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id']}, {'collection_id':1, 'membership_id':1})
+        if membership is None:
+            raise Exception("Unable to find membership for %s"%self.hierarchy)
+        prop = self.clsdict.coad.db['property'].find_one({'name':name, 'collection_id':membership['collection_id']})
+        # Data should exist for this property, if not raise an error
+        data_ids = self.clsdict.coad.db['data'].find({'property_id':prop["property_id"], 'membership_id': membership['membership_id']}, {'_id':0, 'data_id':1})
+        if data_ids.count() == 0:
+            _logger.warning("No properties untagged")
+        else:
+            for data_id_obj in data_ids:
+                data_id = data_id_obj['data_id']
+                _logger.info("Deleting data_id:%s object_id:%s from tag"%(data_id, tag_obj.meta['object_id']))
+                self.clsdict.coad.db['tag'].remove({"data_id":data_id, "object_id":tag_obj.meta['object_id']}, True)
+
+        return
+
     def get_text(self):
         '''Return a dict of all text set for this object along with any
         text tagged to another object.
@@ -764,7 +852,7 @@ class ObjectDict(collections.MutableMapping):
             return text
         members = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
         for mem in members:
-            print("Member is %s"% mem)
+            #print("Member is %s"% mem)
             parent = self.clsdict.coad.get_by_object_id(mem['parent_object_id'])
             all_data = self.clsdict.coad.db['data'].find({'membership_id':mem['membership_id']})
             for dat in all_data:
@@ -840,7 +928,7 @@ class ObjectDict(collections.MutableMapping):
                 # Check if tag already set for tag's object_id
                 tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
                 tags = self.clsdict.coad.db['tag'].find({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
-                print("Looking for tag %s, found %s"%(tag, tags.count()))
+                _logger.info("Looking for tag %s, found %s",tag, tags.count())
                 if tags.count() == 0:
                     self.clsdict.coad.db['tag'].insert({'data_id':str(data_id), 'object_id':tag_obj.meta['object_id']})
         return

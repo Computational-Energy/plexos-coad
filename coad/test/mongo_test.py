@@ -333,12 +333,37 @@ class TestModifications(unittest.TestCase):
         '''Test category creation for class and set for object
         '''
         copy_coad = COAD('coad/master.xml')
-        copy_coad['Performance'].add_category("Test Category")
+        new_cat_id = copy_coad['Performance'].add_category("Test Category")
+        self.assertEqual(new_cat_id, copy_coad['Performance'].get_category_id("Test Category"))
         new_cat = copy_coad['Performance'].get_categories()[1]
         self.assertEqual("Test Category", new_cat['name'])
         self.assertEqual("1", new_cat['rank'])
         copy_coad['Performance']['Gurobi'].set_category("Test Category")
         self.assertEqual("Test Category", copy_coad['Performance']['Gurobi'].get_category())
+
+    def test_new_object(self):
+        '''Test creation of objects
+        '''
+        copy_coad = COAD('coad/master.xml')
+        new_obj = copy_coad['Model'].new("Test Model")
+        self.assertEqual("Test Model", new_obj.meta['name'])
+        new_obj2 = copy_coad['Model'].new("Test Model Custom", category="Custom Category")
+        self.assertEqual("Test Model Custom", new_obj2.meta['name'])
+        self.assertEqual("Custom Category", new_obj2.get_category())
+
+    def test_tag_property(self):
+        '''Test tagging and untagging of existing property
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        g = coad['Generator']['101-1']
+        props = {'Load Point': ['20', '19.8', '16', '15.8'],
+                }
+        g.tag_property("Load Point", tag="Scenario.DA")
+        self.assertIn("Scenario.DA", g.get_properties())
+        self.assertEqual(props, g.get_properties()['Scenario.DA'])
+        g.untag_property("Load Point", tag="Scenario.DA")
+        self.assertNotIn("Scenario.DA", g.get_properties().keys())
 
     '''
 
