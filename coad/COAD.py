@@ -938,7 +938,7 @@ class ObjectDict(collections.MutableMapping):
                 cmd = "SELECT property_id, membership_id FROM data WHERE data_id=?"
                 cur.execute(cmd, [ptag[0]])
                 ptag_data = cur.fetchone()
-                cmd = "SELECT name, is_dynamic, input_mask FROM property WHERE property_id=?"
+                cmd = "SELECT name, is_dynamic, input_mask, is_enabled FROM property WHERE property_id=?"
                 cur.execute(cmd, [ptag_data[0]])
                 ptag_prop = cur.fetchone()
                 if ptag_prop[0] == name:
@@ -954,13 +954,17 @@ class ObjectDict(collections.MutableMapping):
                         if ptag_prop[1] != 'true':
                             cmd = "UPDATE property SET is_dynamic=true WHERE property_id=?"
                             cur.execute(cmd, [ptag_data[0]])
+                        # Make sure property is enabled
+                        if ptag_prop[3] != 'true':
+                            cmd = "UPDATE property SET is_enabled=true WHERE property_id=?"
+                            cur.execute(cmd, [ptag_data[0]])
                         cmd = "UPDATE data SET value=? WHERE data_id=?"
                         cur.execute(cmd, [m_value, ptag[0]])
                         self.coad.dbcon.commit()
                         return
             # Add new tag and data here
             prop_id = self.get_class().valid_properties_by_name['System'][name]
-            cmd = "SELECT input_mask, is_dynamic FROM property WHERE property_id=?"
+            cmd = "SELECT input_mask, is_dynamic, is_enabled FROM property WHERE property_id=?"
             cur.execute(cmd, [prop_id])
             prop = cur.fetchone()
             # Get the masked value before is_dynamic is updated
@@ -969,7 +973,9 @@ class ObjectDict(collections.MutableMapping):
             if prop[1] != 'true':
                 cmd = "UPDATE property SET is_dynamic='true' WHERE property_id=?"
                 cur.execute(cmd, [prop_id])
-                self.coad.dbcon.commit()
+            if prop[2] != 'true':
+                cmd = "UPDATE property SET is_enabled='true' WHERE property_id=?"
+                cur.execute(cmd, [prop_id])
             # Add new data
             cmd = "SELECT data_id, uid FROM data"
             cur.execute(cmd)

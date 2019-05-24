@@ -292,12 +292,15 @@ class TestModifications(unittest.TestCase):
         coad['Generator']['118-1'].set_property('Commit', 'totally_committed', 'Scenario.RT_UC')
         # Test that dynamic flag is not set for Unit Commitment Optimality
         self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_enabled'],'false')
         self.assertRaises(Exception, coad['Generator']['118-1'].set_property, 'Unit Commitment Optimality', 'I hate input masks', 'Scenario.RT_UC')
         # Make sure invalid assignment does not trigger is_dynamic=true
         self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'false')
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_enabled'],'false')
         # This tag isn't set at all
         coad['Generator']['118-1'].set_property('Unit Commitment Optimality', 'Rounded Relaxation', 'Scenario.RT_UC')
         self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_dynamic'],'true')
+        self.assertEqual(coad['Generator'].valid_properties['System']['12']['is_enabled'],'true')
         coad.save('coad/test/RTS-96_props_test.xml')
         saved_coad = COAD('coad/test/RTS-96_props_test.xml')
         expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'Rounded Relaxation'}

@@ -292,7 +292,7 @@ class ClassDict(collections.MutableMapping):
         return ObjIterable(self)
 
     def __len__(self):
-        return self.coad.db['object'].find({'class_id': self.cls.meta['class_id']}).count()
+        return self.coad.db['object'].find({'class_id': self.meta['class_id']}).count()
 
     def diff(self, other_class):
         ''' Return a list of difference between two ClassDict objects
@@ -732,8 +732,8 @@ class ObjectDict(collections.MutableMapping):
                         # Get the masked value before is_dynamic is updated
                         m_value = get_mask_value(ptag_prop, value)
                         # Make sure property has dynamic set to true
-                        if ptag_prop['is_dynamic'] != 'true':
-                            self.clsdict.coad.db['property'].update(ptag_prop, {'$set': {'is_dynamic': 'true'}})
+                        if ptag_prop['is_dynamic'] != 'true' or ptag_prop['is_enabled'] != 'true':
+                            self.clsdict.coad.db['property'].update(ptag_prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
                         self.clsdict.coad.db['data'].update(ptag_data, {'$set': {'value': m_value}})
                         return
             # Add new tag and data here
@@ -742,8 +742,8 @@ class ObjectDict(collections.MutableMapping):
             # Get the masked value before is_dynamic is updated
             m_value = get_mask_value(prop, value)
             # Make sure is_dynamic is set to true
-            if prop['is_dynamic'] != 'true':
-                self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true'}})
+            if prop['is_dynamic'] != 'true' or prop['is_enabled'] != 'true':
+                self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
             # Add new data
             data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
             last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
