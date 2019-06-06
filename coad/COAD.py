@@ -927,8 +927,8 @@ class ObjectDict(collections.MutableMapping):
                 return value
         # If the tagged class doesn't have the property as valid, it's set as a tag
         if tag_clsname not in self.get_class().valid_properties_by_name:
-            if isinstance(value, list):
-                raise Exception("Overwriting list of tagged data is not supported yet")
+            #if isinstance(value, list):
+            #    raise Exception("Overwriting list of tagged data is not supported yet")
             # Modify if value is already set
             cmd = "SELECT data_id FROM tag WHERE object_id=?"
             cur.execute(cmd, [tag_obj.meta['object_id']])
@@ -948,6 +948,8 @@ class ObjectDict(collections.MutableMapping):
                     ptag_member = cur.fetchone()
                     # If it matches, set the value
                     if ptag_member[0] == self.meta['object_id']:
+                        if isinstance(value, list):
+                            raise Exception("Overwriting list of tagged data is not supported yet")
                         # Get the masked value before is_dynamic is updated
                         m_value = get_mask_value(value, ptag_prop[2])
                         # Make sure property has dynamic set to true
@@ -967,8 +969,24 @@ class ObjectDict(collections.MutableMapping):
             cmd = "SELECT input_mask, is_dynamic, is_enabled FROM property WHERE property_id=?"
             cur.execute(cmd, [prop_id])
             prop = cur.fetchone()
-            # Get the masked value before is_dynamic is updated
-            m_value = get_mask_value(value, prop[0])
+            # Add new data
+            cmd = "SELECT MAX(data_id), MAX(CAST(uid AS INTEGER)) FROM data"
+            cur.execute(cmd)
+            (last_data_id, last_uid) = cur.fetchone()
+            _logger.info("Max data id=%s max uid=%s", last_data_id, last_uid)
+            sys_obj = self.coad.get_by_hierarchy('System.System')
+            cmd = "SELECT membership_id FROM membership WHERE child_object_id=? AND parent_object_id=?"
+            cur.execute(cmd, [self.meta['object_id'], sys_obj.meta['object_id']])
+            member = cur.fetchone()
+            #if isinstance(value, list):
+            #    raise Exception("Overwriting list of tagged data is not supported yet")
+            if not isinstance(value, list):
+                value = [value]
+            # TBD: Why? -> Get the masked value before is_dynamic is updated
+            #m_value = get_mask_value(value, prop[0])
+            m_values = [get_mask_value(x, prop[0]) for x in value]
+            # Data and property look good.  Time to update.  This is here because
+            # it gets committed on a select and fetch
             # Make sure is_dynamic is set to true
             if prop[1] != 'true':
                 cmd = "UPDATE property SET is_dynamic='true' WHERE property_id=?"
@@ -976,21 +994,14 @@ class ObjectDict(collections.MutableMapping):
             if prop[2] != 'true':
                 cmd = "UPDATE property SET is_enabled='true' WHERE property_id=?"
                 cur.execute(cmd, [prop_id])
-            # Add new data
-            cmd = "SELECT data_id, uid FROM data"
-            cur.execute(cmd)
-            data_id_list = list(cur.fetchall())
-            last_data_id = max(map(int, [x[0] for x in data_id_list]))
-            last_uid = max(map(int, [x[1] for x in data_id_list]))
-            sys_obj = self.coad.get_by_hierarchy('System.System')
-            cmd = "SELECT membership_id FROM membership WHERE child_object_id=? AND parent_object_id=?"
-            cur.execute(cmd, [self.meta['object_id'], sys_obj.meta['object_id']])
-            member = cur.fetchone()
-            cmd = "INSERT INTO data (data_id,uid,membership_id,value,property_id) VALUES (?,?,?,?,?)"
-            cur.execute(cmd, [last_data_id+1, str(last_uid+1), member[0], m_value, prop_id])
-            # Add new tag
-            cmd = "INSERT INTO tag (data_id, object_id) VALUES (?,?)"
-            cur.execute(cmd, [last_data_id+1, tag_obj.meta['object_id']])
+            for m_value in m_values:
+                last_data_id += 1
+                last_uid += 1
+                cmd = "INSERT INTO data (data_id,uid,membership_id,value,property_id) VALUES (?,?,?,?,?)"
+                cur.execute(cmd, [last_data_id, str(last_uid), member[0], m_value, prop_id])
+                # Add new tag
+                cmd = "INSERT INTO tag (data_id, object_id) VALUES (?,?)"
+                cur.execute(cmd, [last_data_id, tag_obj.meta['object_id']])
             self.coad.dbcon.commit()
             self.coad.set_config("Dynamic", "-1")
         else:
@@ -1062,6 +1073,8 @@ class ObjectDict(collections.MutableMapping):
                  GROUP BY data_id"""
         cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id']])
         all_data_ids = [x[0] for x in list(cur.fetchall())]
+        if len(all_data_ids) == 0:
+            _logger.warn("No property values available for %s", name)
         cmd = "INSERT INTO tag (data_id, object_id) VALUES (?, ?)"
         _logger.info("Data to be fed %s", [zip(all_data_ids,[tag_obj.meta['object_id']]*len(all_data_ids))])
         cur.executemany(cmd, zip(all_data_ids,[tag_obj.meta['object_id']]*len(all_data_ids)))

@@ -340,6 +340,15 @@ class TestObjectDictProperties(unittest.TestCase):
         expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'Rounded Relaxation'}
         self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'], expected)
 
+    def test_modify_multiband_tagged_properties(self):
+        '''Tests related to modifying tagged properties with a list of values
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        test_list = ['1','2','3','4']
+        coad['Generator']['118-1'].set_property("Load Point", test_list, tag="Scenario.4HA_UC")
+        self.assertEqual(coad['Generator']['118-1'].get_property("Load Point", "Scenario.4HA_UC"), test_list)
+
     def test_get_text(self):
         '''Get text values for Data File objects
         '''
