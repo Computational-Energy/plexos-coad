@@ -723,9 +723,9 @@ class ObjectDict(collections.MutableMapping):
                 ordered_data.append(mapped_data[all_data_ids.index(band_did)])
             return ordered_data
 
-    def set_property(self, name, value, tag='System.System'):
-        '''Set the value of a property by name.
-        Limited to modifying existing values.  Will not add new data.
+    def set_property(self, name, value, tag='System.System', data_tag=None):
+        '''Set the value of a property by name.  Inserts new data if needed.
+        If data_tag is set, create additional tag for datafile.
         '''
         tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
         tag_clsname = tag_obj.clsdict.meta['name']
@@ -777,6 +777,9 @@ class ObjectDict(collections.MutableMapping):
                 value = [value]
             m_values = [get_mask_value(prop, x) for x in value]
             #m_value = get_mask_value(prop, value)
+            # data tag involved?
+            if data_tag is not None:
+                data_obj = self.coad.get_by_hierarchy(data_tag)
             # Make sure is_dynamic is set to true
             if prop['is_dynamic'] != 'true' or prop['is_enabled'] != 'true':
                 self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
@@ -816,6 +819,9 @@ class ObjectDict(collections.MutableMapping):
                 # Add new tag
                 self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id),
                                         'object_id':tag_obj.meta['object_id']})
+                if data_tag is not None:
+                    self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id),
+                                            'object_id':data_obj.meta['object_id']})
         else:
             # Reverse lookup of class.valid_properties to get property_id
             if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
