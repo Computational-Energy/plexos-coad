@@ -234,14 +234,16 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
             membership.child_object_id AS child_object_id,
             membership.parent_object_id AS parent_object_id,
             {tag} AS tag_object_id,
-            {text} AS text_value
+            {text} AS text_value,
+            {band} AS band_id
         FROM data
         INNER JOIN property ON property.property_id = data.property_id
         INNER JOIN membership ON membership.membership_id = data.membership_id
         {tagjoin}
         {textjoin}
+        {bandjoin}
         """
-        subs = {'uid':'', 'tag':'NULL', 'tagjoin':'', 'text':'NULL', 'textjoin':''}
+        subs = {'uid':'', 'tag':'NULL', 'tagjoin':'', 'text':'NULL', 'textjoin':'', 'band':'NULL', 'bandjoin':''}
         if 'uid' in tables['data']:
             subs['uid'] = "data.uid,"
         if 'tag' in tables:
@@ -250,6 +252,9 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
         if 'text' in tables:
             subs['text'] = "text.value"
             subs['textjoin'] = "LEFT OUTER JOIN text ON text.data_id = data.data_id"
+        if 'band' in tables:
+            subs['band'] = "band.band_id"
+            subs['bandjoin'] = "LEFT JOIN band ON band.data_id = data.data_id"
         dbcon.execute(cmd.format(**subs))
     LOGGER.info('Loaded %s rows in %d seconds',row_count,(time.time()-start_time))
     if has_resource:

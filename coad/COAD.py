@@ -834,8 +834,10 @@ class ObjectDict(collections.MutableMapping):
             return props
         cmd = "SELECT name, value, parent_object_id, input_mask, tag_object_id FROM property_view WHERE child_object_id=?"
         if self.coad.has_data_uid:
-            cmd += " ORDER BY uid"
+            cmd += " ORDER BY band_id"
+            #cmd += " ORDER BY uid"
         cur.execute(cmd, [self.meta['object_id']])
+        _logger.info("Prop query is %s with %s", cmd, self.meta['object_id'])
         for (name, value, parent_object_id, input_mask, tag_object_id)  in cur.fetchall():
             pvtime = time.time()
             if tag_object_id:
@@ -877,7 +879,8 @@ class ObjectDict(collections.MutableMapping):
         cur = self.coad.dbcon.cursor()
         cmd = "SELECT value, input_mask FROM property_view WHERE (child_object_id=? AND name=?) AND (parent_object_id=? OR tag_object_id=?)"
         if self.coad.has_data_uid:
-            cmd += " ORDER BY uid"
+            cmd += " ORDER BY band_id"
+            #cmd += " ORDER BY uid"
         cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id'], tag_obj.meta['object_id']])
         all_data = list(cur.fetchall())
         valdict = {}
@@ -901,8 +904,9 @@ class ObjectDict(collections.MutableMapping):
         else:
             return mapped_data
 
-    def set_property(self, name, value, tag='System.System'):
+    def set_property(self, name, value, tag='System.System', data_tag=None):
         '''Set the value of a property by name.  Inserts new data if needed.
+        If data_tag is set, create additional tag for datafile.
         '''
         stime = time.time()
         cur = self.coad.dbcon.cursor()
@@ -985,6 +989,9 @@ class ObjectDict(collections.MutableMapping):
             # TBD: Why? -> Get the masked value before is_dynamic is updated
             #m_value = get_mask_value(value, prop[0])
             m_values = [get_mask_value(x, prop[0]) for x in value]
+            # data tag involved?
+            if data_tag is not None:
+                data_obj = self.coad.get_by_hierarchy(data_tag)
             # Data and property look good.  Time to update.  This is here because
             # it gets committed on a select and fetch
             # Make sure is_dynamic is set to true
@@ -994,14 +1001,23 @@ class ObjectDict(collections.MutableMapping):
             if prop[2] != 'true':
                 cmd = "UPDATE property SET is_enabled='true' WHERE property_id=?"
                 cur.execute(cmd, [prop_id])
+            band = 0
             for m_value in m_values:
                 last_data_id += 1
                 last_uid += 1
+                band += 1
                 cmd = "INSERT INTO data (data_id,uid,membership_id,value,property_id) VALUES (?,?,?,?,?)"
                 cur.execute(cmd, [last_data_id, str(last_uid), member[0], m_value, prop_id])
+                # Add new band
+                if band > 1:
+                    cmd = "INSERT INTO band (data_id,band_id) VALUES (?,?)"
+                    cur.execute(cmd, [last_data_id, str(band)])
                 # Add new tag
                 cmd = "INSERT INTO tag (data_id, object_id) VALUES (?,?)"
                 cur.execute(cmd, [last_data_id, tag_obj.meta['object_id']])
+                if data_tag is not None:
+                    cmd = "INSERT INTO tag (data_id, object_id) VALUES (?,?)"
+                    cur.execute(cmd, [last_data_id, data_obj.meta['object_id']])
             self.coad.dbcon.commit()
             self.coad.set_config("Dynamic", "-1")
         else:
@@ -1020,7 +1036,7 @@ class ObjectDict(collections.MutableMapping):
             if member is None:
                 raise Exception("Unable to find membership for %s in %s"%(tag, self.meta['name']))
             if self.coad.has_data_uid:
-                cmd = "SELECT data_id, uid FROM data WHERE membership_id=? AND property_id=? ORDER BY uid"
+                cmd = "SELECT data.data_id FROM data LEFT JOIN band ON band.data_id=data.data_id WHERE membership_id=? AND property_id=? ORDER BY band_id"
             else:
                 cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=? ORDER BY data_id"
             cur.execute(cmd, [member[0], prop_id])

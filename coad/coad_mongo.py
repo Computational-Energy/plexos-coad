@@ -608,6 +608,8 @@ class ObjectDict(collections.MutableMapping):
         memberships = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']})
         for member in memberships:
             parent = self.clsdict.coad.get_by_object_id(member['parent_object_id'])
+            # TODO: sort by band
+            #data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
             data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id']}).sort('uid', 1)
             for d in data:
                 # Can parents and tags coexist? Yes!  It appears the data_id
@@ -624,6 +626,7 @@ class ObjectDict(collections.MutableMapping):
                 name = self.clsdict.valid_properties[parent.clsdict.meta['name']][d['property_id']]['name']
                 # Test for input mask, substituting if needed
                 prop = self.clsdict.coad.db['property'].find_one({'property_id':d['property_id']})
+                band = self.clsdict.coad.db['band'].find_one({'data_id':d['data_id']})
                 valdict = {}
                 if 'input_mask' in prop:
                     mask = prop['input_mask'].split(";")
@@ -636,13 +639,21 @@ class ObjectDict(collections.MutableMapping):
                     value = d['value']
                 if tag_hier not in props:
                     props[tag_hier] = {}
-                if name not in props[tag_hier]:
+                max_band_id = int(prop['max_band_id'])
+                #if name not in props[tag_hier]:
+                if max_band_id == 1:
                     props[tag_hier][name] = value
                 else:
-                    if not isinstance(props[tag_hier][name], list):
-                        props[tag_hier][name] = [props[tag_hier][name], value]
+                    if name not in props[tag_hier]:
+                        props[tag_hier][name] = [None] * max_band_id
+                    if band:
+                        props[tag_hier][name][int(band['band_id']) - 1] = value
                     else:
-                        props[tag_hier][name].append(value)
+                        props[tag_hier][name][0] = value
+                    #if not isinstance(props[tag_hier][name], list):
+                    #    props[tag_hier][name] = [props[tag_hier][name], value]
+                    #else:
+                    #    props[tag_hier][name].append(value)
         return props
 
     def get_property(self, name, tag='System.System'):
@@ -657,18 +668,21 @@ class ObjectDict(collections.MutableMapping):
             tag_obj = tag
         else:
             tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
-        tag_clsname = tag_obj.clsdict.meta['name']
-        # Reverse lookup of class.valid_properties to get property_id
-        if name not in self.clsdict.valid_properties_by_name[tag_clsname]:
-            raise Exception('"%s" is not a valid property for class %s'%(name, tag_clsname))
-        prop_id = self.clsdict.valid_properties_by_name[tag_clsname][name]
         # Tag object should always be ObjectDict
         tag_obj_id = tag_obj.meta['object_id']
-        member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1})
+        member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':tag_obj_id}, {'membership_id':1, 'collection_id':1})
         if member is None:
-            raise Exception("Unable to find membership for %s in %s"%(tag.hierarchy, self.hierarchy))
+            all_members = self.clsdict.coad.db['membership'].find({'child_object_id':self.meta['object_id']}, {'membership_id':1, 'collection_id':1})
+            for member in all_members:
+                prop = self.clsdict.coad.db['property'].find_one({'collection_id':member['collection_id'], 'name':name})
+                if prop is not None:
+                    break
+            if prop is None:
+                raise Exception("Unable to find membership for %s in %s"%(tag_obj.hierarchy, self.hierarchy))
+        else:
+            prop = self.clsdict.coad.db['property'].find_one({'collection_id':member['collection_id'], 'name':name})
+        prop_id = prop['property_id']
         # Test for input mask, substituting if needed
-        prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
         valdict = {}
         if 'input_mask' in prop:
             mask = prop['input_mask'].split(";")
@@ -680,22 +694,39 @@ class ObjectDict(collections.MutableMapping):
                 return valdict[val]
             else:
                 return val
-        all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+        # Only use data that is tagged
+        if tag_obj_id == '1':
+            # TODO: This won't work, need to reject all data that isn't tagged at all
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
+        else:
+            tagged_data = self.clsdict.coad.db['tag'].find({'object_id':tag_obj_id},{'data_id':1})
+            tagged_data_ids = [x['data_id'] for x in tagged_data]
+            all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id, 'data_id': {'$in':tagged_data_ids}}).sort('uid', 1)
         data_count = all_data.count()
-        mapped_data = [valmap(d['value']) for d in all_data]
+        mapped_data = []
+        all_data_ids = []
+        for d in all_data:
+            mapped_data.append(valmap(d['value']))
+            all_data_ids.append(d['data_id'])
         if data_count == 0:
             raise Exception("No exisiting data found for membership %s"%member['membership_id'])
         elif data_count == 1:
             return mapped_data[0]
         else:
-            return mapped_data
+            # Must order data based on band_id
+            bands = self.clsdict.coad.db['band'].find({'data_id':{'$in':all_data_ids}}).sort('band_id', 1)
+            all_banded_data = [x['data_id'] for x in bands]
+            _logger.info("Data_ids %s Bands %s", all_data_ids, all_banded_data)
+            missing_band = set(all_data_ids) - set(all_banded_data)
+            ordered_data = [mapped_data[all_data_ids.index(missing_band.pop())]]
+            for band_did in all_banded_data:
+                ordered_data.append(mapped_data[all_data_ids.index(band_did)])
+            return ordered_data
 
     def set_property(self, name, value, tag='System.System'):
         '''Set the value of a property by name.
         Limited to modifying existing values.  Will not add new data.
         '''
-        if isinstance(value, list):
-            raise Exception("Overwriting list of data not supported yet")
         tag_obj = self.clsdict.coad.get_by_hierarchy(tag)
         tag_clsname = tag_obj.clsdict.meta['name']
         # Commonly used method for converting human value to stored value
@@ -729,6 +760,8 @@ class ObjectDict(collections.MutableMapping):
                     ptag_member = self.clsdict.coad.db['membership'].find_one({'membership_id':ptag_data['membership_id']})
                     # If it matches, set the value
                     if ptag_member['child_object_id'] == self.meta['object_id']:
+                        if isinstance(value, list):
+                            raise Exception("Overwriting list of tagged data is not supported yet")
                         # Get the masked value before is_dynamic is updated
                         m_value = get_mask_value(ptag_prop, value)
                         # Make sure property has dynamic set to true
@@ -740,23 +773,48 @@ class ObjectDict(collections.MutableMapping):
             prop_id = self.clsdict.valid_properties_by_name['System'][name]
             prop = self.clsdict.coad.db['property'].find_one({'property_id':prop_id})
             # Get the masked value before is_dynamic is updated
-            m_value = get_mask_value(prop, value)
+            if not isinstance(value, list):
+                value = [value]
+            m_values = [get_mask_value(prop, x) for x in value]
+            #m_value = get_mask_value(prop, value)
             # Make sure is_dynamic is set to true
             if prop['is_dynamic'] != 'true' or prop['is_enabled'] != 'true':
                 self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
             # Add new data
-            data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
-            last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
-            last_uid = max(map(int, [x['uid'] for x in data_id_list]))
+            #last_data_id = self.clsdict.coad.db['data'].find_one(sort=[("data_id", -1)])["data_id"]
+            last_data_id = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_data_id': {'$toInt': '$data_id'}}}, {'$sort':{"int_data_id": -1}}]).next()["int_data_id"]
+            #last_uid = self.clsdict.coad.db['data'].find_one(sort=[({'int_uid': {'$toInt': '$uid'}}, -1)])["int_uid"]
+            #last_uid = self.clsdict.coad.db['data'].find_one(sort=[({'$project':{'int_uid': {'$toInt': '$uid'}}}, -1)])["int_uid"]
+            last_uid = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_uid': {'$toInt': '$uid'}}}, {'$sort':{"int_uid": -1}}]).next()["int_uid"]
+            #last_uid = last_data_id
+            _logger.info("Max data id=%s max uid=%s", last_data_id, last_uid)
+            #agg_result = self.clsdict.coad.db['data'].aggregate([{'$project':{'last_data_id': {'$max': '$data_id'},
+            #                                        'last_uid': {'$max': {'$toInt': '$uid'}}}}])
+            #_logger.info(agg_result)
+            #_logger.info(list(agg_result))
+            #_logger.info("Max data id=%s max uid=%s", agg_result['last_data_id'], agg_result['last_uid'])
+            #data_id_list = list(self.clsdict.coad.db['data'].find( {}, { '_id': 0, 'data_id': 1, 'uid': 1 } ))
+            #last_data_id = max(map(int, [x['data_id'] for x in data_id_list]))
+            #last_uid = max(map(int, [x['uid'] for x in data_id_list]))
+            #_logger.info("Max data id=%s max uid=%s", last_data_id, last_uid)
             sys_obj = self.clsdict.coad.get_by_hierarchy('System.System')
             member = self.clsdict.coad.db['membership'].find_one({'child_object_id':self.meta['object_id'], 'parent_object_id':sys_obj.meta['object_id']}, {'membership_id':1})
-            self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id+1),
-                                         'uid':str(last_uid+1),
+            band = 0
+            for m_value in m_values:
+                last_data_id += 1
+                last_uid += 1
+                band += 1
+                self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id),
+                                         'uid':str(last_uid),
                                          'membership_id':member['membership_id'],
                                          'value':m_value,
                                          'property_id':prop_id})
-            # Add new tag
-            self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id+1),
+                # Add new band
+                if band > 1:
+                    self.clsdict.coad.db['band'].insert({'data_id':str(last_data_id),
+                        'band_id':str(band)})
+                # Add new tag
+                self.clsdict.coad.db['tag'].insert({'data_id':str(last_data_id),
                                         'object_id':tag_obj.meta['object_id']})
         else:
             # Reverse lookup of class.valid_properties to get property_id

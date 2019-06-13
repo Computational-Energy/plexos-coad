@@ -1,11 +1,13 @@
 from coad.plexos_mongo import load, save
 from coad.coad_mongo import COAD
+import logging
 import unittest
 
 from coad._compat import is_py2
 
 # Only load the master once
 master_coad = COAD('coad/master.xml')
+logger = logging.getLogger(__name__)
 
 class TestDB(unittest.TestCase):
 
@@ -120,8 +122,8 @@ class TestDB(unittest.TestCase):
         coad = COAD(filename)
         g = coad['Generator']['101-1']
         props = {'System.System':{'Mean Time to Repair': '50',
-                     'Load Point': ['20', '19.8', '16', '15.8'],
-                     'Heat Rate': ['15063', '14499', '14500', '15000'],
+                     'Load Point': ['15.8', '16', '19.8', '20'],
+                     'Heat Rate': ['15063', '15000', '14500', '14499'],
                      'Min Up Time': '1',
                      'Max Ramp Up': '3',
                      'Min Down Time': '1',
@@ -134,7 +136,7 @@ class TestDB(unittest.TestCase):
                      'Forced Outage Rate': '10'}}
         self.assertEqual(g.get_properties(), props)
         # Get property
-        self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
+        self.assertEqual(g.get_property('Load Point'), ['15.8', '16', '19.8', '20'])
         # Tagged properties
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
 
@@ -306,6 +308,16 @@ class TestModifications(unittest.TestCase):
         expected = {'Commit':'totally_committed', 'Unit Commitment Optimality':'Rounded Relaxation'}
         self.assertEqual(saved_coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'], expected)
 
+    def test_modify_multiband_tagged_properties(self):
+        '''Tests related to modifying tagged properties with a list of values
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        test_list = ['1','2','3','4']
+        coad['Generator']['118-1'].set_property("Load Point", test_list, tag="Scenario.4HA_UC")
+        logger.info(coad['Generator']['118-1'].get_properties())
+        self.assertEqual(coad['Generator']['118-1'].get_property("Load Point", "Scenario.4HA_UC"), test_list)
+
     def test_set_text(self):
         '''Set text values for Data File objects
         '''
@@ -360,7 +372,7 @@ class TestModifications(unittest.TestCase):
         filename = 'coad/test/RTS-96.xml'
         coad = COAD(filename)
         g = coad['Generator']['101-1']
-        props = {'Load Point': ['20', '19.8', '16', '15.8'],
+        props = {'Load Point': ['15.8', '16', '19.8', '20'],
                 }
         g.tag_property("Load Point", tag="Scenario.DA")
         self.assertIn("Scenario.DA", g.get_properties())

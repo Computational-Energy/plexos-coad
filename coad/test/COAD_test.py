@@ -228,8 +228,8 @@ class TestObjectDictProperties(unittest.TestCase):
         coad = COAD(filename)
         g = coad['Generator']['101-1']
         props = {'System.System':{'Mean Time to Repair': '50',
-                     'Load Point': ['20', '19.8', '16', '15.8'],
-                     'Heat Rate': ['15063', '14499', '14500', '15000'],
+                     'Load Point': ['15.8', '16', '19.8', '20'],
+                     'Heat Rate': ['15063', '15000', '14500', '14499'],
                      'Min Up Time': '1',
                      'Max Ramp Up': '3',
                      'Min Down Time': '1',
@@ -242,7 +242,7 @@ class TestObjectDictProperties(unittest.TestCase):
                      'Forced Outage Rate': '10'}}
         self.assertEqual(g.get_properties(), props)
         # Get property
-        self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
+        self.assertEqual(g.get_property('Load Point'), ['15.8', '16', '19.8', '20'])
         # Tagged properties
         #print coad['Generator']['118-1'].get_properties()
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
@@ -282,8 +282,8 @@ class TestObjectDictProperties(unittest.TestCase):
         # Get properties
         g = coad['Generator']['101-1']
         props = {'Mean Time to Repair': '50',
-                 'Load Point': ['20', '19.8', '16', '15.8'],
-                 'Heat Rate': ['15063', '14499', '14500', '15000'],
+                 'Load Point': ['15.8', '16', '19.8', '20'],
+                 'Heat Rate': ['15063', '15000', '14500', '14499'],
                  'Min Up Time': '1',
                  'Max Ramp Up': '3',
                  'Min Down Time': '1',
@@ -296,7 +296,7 @@ class TestObjectDictProperties(unittest.TestCase):
                  'Forced Outage Rate': '10'}
         self.assertEqual(g.get_properties()['System.System'], props)
         # Get property
-        self.assertEqual(g.get_property('Load Point'), ['20', '19.8', '16', '15.8'])
+        self.assertEqual(g.get_property('Load Point'), ['15.8', '16', '19.8', '20'])
         # Set property
         g.set_property('Load Point', ['a', 'b', 'c', 'd'])
         self.assertEqual(g.get_property('Load Point'), ['a', 'b', 'c', 'd'])
@@ -409,7 +409,7 @@ class TestObjectDictProperties(unittest.TestCase):
         filename = 'coad/test/RTS-96.xml'
         coad = COAD(filename)
         g = coad['Generator']['101-1']
-        props = {'Load Point': ['20', '19.8', '16', '15.8'],
+        props = {'Load Point': ['15.8', '16', '19.8', '20'],
                 }
         g.tag_property("Load Point", tag="Scenario.DA")
         self.assertEqual(props, g.get_properties()['Scenario.DA'])
