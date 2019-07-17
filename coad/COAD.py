@@ -694,11 +694,13 @@ class ObjectDict(collections.MutableMapping):
         self.coad.dbcon.commit()
         return new_obj_dict
 
-    def set_children(self, children, replace=True):
+    def set_children(self, children, replace=True, name=None):
         ''' Set the children of this object.    If replace is true, it will
         remove any existing children matching the classes passed in otherwise it
         will append the data.
         Can handle either a single ObjectDict or list of ObjectDicts
+        Add name if multiple collections match the parent and child classes,
+            otherwise it is ignored.
         TODO: Validate that object is allowed to have the children passed in
         '''
         children_by_class = {}
@@ -720,7 +722,8 @@ class ObjectDict(collections.MutableMapping):
             if replace:
                 cmd = "DELETE FROM membership WHERE parent_object_id=? AND child_class_id=?"
                 cur.execute(cmd, [self.meta['object_id'], class_id])
-            collection_id = self.get_collection_id(class_id)
+            # In case of multiple collection
+            collection_id = self.get_collection_id(class_id, name=name)
             for obj in objectdicts:
                 # IF NOT EXISTS is problematic in sqlite
                 cmd = "DELETE FROM membership WHERE parent_object_id=? AND child_object_id=?"
@@ -801,20 +804,28 @@ class ObjectDict(collections.MutableMapping):
                 return class_dict
         raise Exception('Unable to find class associated with object')
 
-    def get_collection_id(self, child_class_id):
+    def get_collection_id(self, child_class_id, name=None):
         ''' Return the collection id that represents the relationship between
         this object's class and a child's class
             Collections appear to be another view of membership, maybe a list of
-        allowed memberships
+        allowed memberships.
+            If multiple memberships are available, select based on name
         '''
         cur = self.coad.dbcon.cursor()
-        cmd = '''SELECT collection_id FROM collection WHERE parent_class_id=?
+        cmd = '''SELECT collection_id, name FROM collection WHERE parent_class_id=?
                  AND child_class_id=?'''
         cur.execute(cmd, [self.meta['class_id'], child_class_id])
         rows = cur.fetchall()
-        if len(rows) != 1:
+        if len(rows) == 0:
             msg = 'Unable to find collection for the parent %s and child %s'
             raise Exception(msg%(self.meta['class_id'], child_class_id))
+        elif len(rows) > 1:
+            namelist = []
+            for row in rows:
+                if row[1] == name:
+                    return row[0]
+                namelist.append(row[1])
+            raise Exception("Multiple collections available for relationship.  Choose name from %s"%str(namelist))
         return rows[0][0]
 
     def get_properties(self):
@@ -929,6 +940,9 @@ class ObjectDict(collections.MutableMapping):
                 raise Exception("Value '%s' not in property's input_mask.  Valid values are:\n%s\n"%(value,'\n'.join(vv)))
             else:
                 return value
+        # TODO: simplify the complicated method for creating new data values
+        #def create_new_data(tbd):
+        #    pass
         # If the tagged class doesn't have the property as valid, it's set as a tag
         if tag_clsname not in self.get_class().valid_properties_by_name:
             #if isinstance(value, list):
@@ -982,12 +996,9 @@ class ObjectDict(collections.MutableMapping):
             cmd = "SELECT membership_id FROM membership WHERE child_object_id=? AND parent_object_id=?"
             cur.execute(cmd, [self.meta['object_id'], sys_obj.meta['object_id']])
             member = cur.fetchone()
-            #if isinstance(value, list):
-            #    raise Exception("Overwriting list of tagged data is not supported yet")
             if not isinstance(value, list):
                 value = [value]
             # TBD: Why? -> Get the masked value before is_dynamic is updated
-            #m_value = get_mask_value(value, prop[0])
             m_values = [get_mask_value(x, prop[0]) for x in value]
             # data tag involved?
             if data_tag is not None:
@@ -1043,7 +1054,37 @@ class ObjectDict(collections.MutableMapping):
             all_data = list(cur.fetchall())
             data_count = len(all_data)
             if data_count == 0:
-                raise Exception("No exisiting data found for membership %s"%member[0])
+                #raise Exception("No exisiting data found for membership %s"%member[0])
+                # Add new data
+                cmd = "SELECT input_mask, is_dynamic, is_enabled FROM property WHERE property_id=?"
+                cur.execute(cmd, [prop_id])
+                prop = cur.fetchone()
+                cmd = "SELECT MAX(data_id), MAX(CAST(uid AS INTEGER)) FROM data"
+                cur.execute(cmd)
+                (last_data_id, last_uid) = cur.fetchone()
+                _logger.info("Max data id=%s max uid=%s", last_data_id, last_uid)
+                if not isinstance(value, list):
+                    value = [value]
+                # TBD: Why? -> Get the masked value before is_dynamic is updated
+                m_values = [get_mask_value(x, prop[0]) for x in value]
+                # Get last data_id
+                if prop[1] != 'true':
+                    cmd = "UPDATE property SET is_dynamic='true' WHERE property_id=?"
+                    cur.execute(cmd, [prop_id])
+                if prop[2] != 'true':
+                    cmd = "UPDATE property SET is_enabled='true' WHERE property_id=?"
+                    cur.execute(cmd, [prop_id])
+                band = 0
+                for m_value in m_values:
+                    last_data_id += 1
+                    last_uid += 1
+                    band += 1
+                    cmd = "INSERT INTO data (data_id,uid,membership_id,value,property_id) VALUES (?,?,?,?,?)"
+                    cur.execute(cmd, [last_data_id, str(last_uid), member[0], m_value, prop_id])
+                    # Add new band
+                    if band > 1:
+                        cmd = "INSERT INTO band (data_id,band_id) VALUES (?,?)"
+                        cur.execute(cmd, [last_data_id, str(band)])
             elif data_count == 1:
                 # Can replace this data
                 if isinstance(value, list):

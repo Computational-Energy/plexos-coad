@@ -150,6 +150,13 @@ class TestObjectDict(unittest.TestCase):
         # TODO: Test multiple new children of different classes that overwrites existing
         # TODO: Test adding new child once collection functionality is understood
         # TODO: Add mix of new child classes once collection functionality is understood
+        # Children with multiple collections available
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        self.assertRaises(Exception, coad['Node']['101'].set_children, coad['Zone'].meta['class_id'])
+        self.assertEqual(178, coad['Node']['101'].get_collection_id(coad['Zone'].meta['class_id'], name="Zone"))
+        dzone = coad['Zone'].new("Dummy Zone")
+        coad['Node']['101'].set_children(dzone, name="Zone")
 
     def test_get_class(self):
         g_class = self.coad['Performance']['Gurobi'].get_class()
@@ -402,6 +409,11 @@ class TestObjectDictProperties(unittest.TestCase):
         new_obj2 = copy_coad['Model'].new("Test Model Custom", category="Custom Category")
         self.assertEqual("Test Model Custom", new_obj2.meta['name'])
         self.assertEqual("Custom Category", new_obj2.get_category())
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        new_obj = coad['Node'].new("Test Node")
+        new_obj.set_property("Allow Dump Energy", "No")
+        self.assertEqual("No", new_obj.get_property("Allow Dump Energy"))
 
     def test_tag_property(self):
         '''Test tagging and untagging of existing property

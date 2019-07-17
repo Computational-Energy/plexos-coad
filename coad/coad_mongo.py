@@ -318,17 +318,27 @@ class ClassDict(collections.MutableMapping):
                 diff_msg += obj_diff
         return diff_msg
 
-    def get_collection_id(self, child_class_id):
+    def get_collection_id(self, child_class_id, name=None):
         ''' Return the collection id that represents the relationship between
         this object's class and a child's class
             Collections appear to be another view of membership, maybe a list of
         allowed memberships
+            If multiple memberships are available, select based on name
         '''
-        collection = self.coad.db['collection'].find_one({'parent_class_id':self.meta['class_id'], 'child_class_id':child_class_id}, {'collection_id':1})
-        if collection is None:
+        collection = self.coad.db['collection'].find({'parent_class_id':self.meta['class_id'], 'child_class_id':child_class_id}, {'collection_id':1, 'name':1})
+        if collection.count() == 0:
             msg = 'Unable to find collection for the parent %s and child %s'
             raise Exception(msg%(self.meta['class_id'], child_class_id))
-        return collection['collection_id']
+        elif collection.count() > 1:
+            namelist = []
+            for row in collection:
+                if row['name'] == name:
+                    return row['collection_id']
+                namelist.append(row['name'])
+            raise Exception("Multiple collections available for relationship.  Choose name from %s"%str(namelist))
+            #msg = 'Multiple collections exist for the parent %s and child %s'
+            #raise Exception(msg%(self.meta['class_id'], child_class_id))
+        return collection[0]['collection_id']
 
     def get_category_id(self, category):
         ''' Return the category id for objects of this class based on category name
@@ -447,7 +457,7 @@ class ObjectDict(collections.MutableMapping):
         #return iter(self.store)
 
     def __len__(self):
-        return self.clsdict.coad.db['attribute_data'].distinct('attribute_id', {'object_id':self.meta['object_id']}).count()
+        return len(self.clsdict.coad.db['attribute_data'].distinct('attribute_id', {'object_id':self.meta['object_id']}))
         #return len(self.store)
 
     def __str__(self):
@@ -514,11 +524,13 @@ class ObjectDict(collections.MutableMapping):
             self.clsdict.coad.db['membership'].insert_many(new_mships)
         return self.clsdict[new_obj['name']]
 
-    def set_children(self, children, replace=True):
+    def set_children(self, children, replace=True, name=None):
         ''' Set the children of this object.    If replace is true, it will
         remove any existing children matching the classes passed in otherwise it
         will append the data.
         Can handle either a single ObjectDict or list of ObjectDicts
+        Add name if multiple collections match the parent and child classes,
+            otherwise it is ignored.
         TODO: Validate that object is allowed to have the children passed in
         '''
         # Convert objdict to list of objdict
@@ -541,7 +553,7 @@ class ObjectDict(collections.MutableMapping):
                          'child_object_id':child.meta['object_id'],
                          'parent_class_id':self.clsdict.meta['class_id'],
                          'parent_object_id':self.meta['object_id'],
-                         'collection_id':self.clsdict.get_collection_id(child_class_id)}
+                         'collection_id':self.clsdict.get_collection_id(child_class_id, name=name)}
             new_mships.append(new_mship)
             new_mship_id += 1
         if len(new_mships) > 0:
@@ -836,7 +848,31 @@ class ObjectDict(collections.MutableMapping):
             all_data = self.clsdict.coad.db['data'].find({'membership_id':member['membership_id'], 'property_id':prop_id}).sort('uid', 1)
             data_count = all_data.count()
             if data_count == 0:
-                raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+                #raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+                last_data_id = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_data_id': {'$toInt': '$data_id'}}}, {'$sort':{"int_data_id": -1}}]).next()["int_data_id"]
+                last_uid = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_uid': {'$toInt': '$uid'}}}, {'$sort':{"int_uid": -1}}]).next()["int_uid"]
+                _logger.info("Max data id=%s max uid=%s", last_data_id, last_uid)
+                # Get the masked value before is_dynamic is updated
+                if not isinstance(value, list):
+                    value = [value]
+                m_values = [get_mask_value(prop, x) for x in value]
+                # Make sure is_dynamic is set to true
+                if prop['is_dynamic'] != 'true' or prop['is_enabled'] != 'true':
+                    self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
+                band = 0
+                for m_value in m_values:
+                    last_data_id += 1
+                    last_uid += 1
+                    band += 1
+                    self.clsdict.coad.db['data'].insert({'data_id':str(last_data_id),
+                                             'uid':str(last_uid),
+                                             'membership_id':member['membership_id'],
+                                             'value':m_value,
+                                             'property_id':prop_id})
+                    # Add new band
+                    if band > 1:
+                        self.clsdict.coad.db['band'].insert({'data_id':str(last_data_id),
+                            'band_id':str(band)})
             elif data_count == 1:
                 # Can replace this data
                 data = all_data.next()
