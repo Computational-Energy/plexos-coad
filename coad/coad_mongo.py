@@ -204,7 +204,7 @@ class COAD(collections.MutableMapping):
         return iter([c['name'] for c in cls_dicts])
 
     def __len__(self):
-        return self.coad.db['class'].count()
+        return self.db['class'].count()
 
 class ClassDict(collections.MutableMapping):
     '''
@@ -721,7 +721,7 @@ class ObjectDict(collections.MutableMapping):
             mapped_data.append(valmap(d['value']))
             all_data_ids.append(d['data_id'])
         if data_count == 0:
-            raise Exception("No exisiting data found for membership %s"%member['membership_id'])
+            return None
         elif data_count == 1:
             return mapped_data[0]
         else:
@@ -791,7 +791,7 @@ class ObjectDict(collections.MutableMapping):
             #m_value = get_mask_value(prop, value)
             # data tag involved?
             if data_tag is not None:
-                data_obj = self.coad.get_by_hierarchy(data_tag)
+                data_obj = self.clsdict.coad.get_by_hierarchy(data_tag)
             # Make sure is_dynamic is set to true
             if prop['is_dynamic'] != 'true' or prop['is_enabled'] != 'true':
                 self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
@@ -907,7 +907,7 @@ class ObjectDict(collections.MutableMapping):
         # Data should exist for this property, if not raise an error
         data_ids = self.clsdict.coad.db['data'].find({'property_id':prop["property_id"], 'membership_id': membership['membership_id']}, {'_id':0, 'data_id':1})
         if data_ids.count() == 0:
-            raise Exception("No data matching '%s' for this object", name)
+            _logger.warn("No property values available for %s", name)
         for data_id in data_ids:
             # Make sure tag for this data_id and tag object_id does not already exist
             tagtest = self.clsdict.coad.db['tag'].find_one({"data_id":data_id['data_id'], "object_id":tag_obj.meta['object_id']})

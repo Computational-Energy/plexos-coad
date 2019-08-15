@@ -139,6 +139,8 @@ class TestDB(unittest.TestCase):
         self.assertEqual(g.get_property('Load Point'), ['15.8', '16', '19.8', '20'])
         # Tagged properties
         self.assertEqual(coad['Generator']['118-1'].get_properties()['Scenario.RT_UC'],{'Commit':'0'})
+        # Tagged property with no data
+        self.assertEqual(None, g.get_property('Load Point', tag='Scenario.RT_UC'))
 
     def test_get_property_with_input_mask(self):
         '''Test property value input mask

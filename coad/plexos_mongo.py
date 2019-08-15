@@ -199,7 +199,7 @@ def save(db, filename):
                     #if val is None:
                     #  continue
                     attr_ele = etree.SubElement(ele, sube)
-                    if isinstance(val, int):
+                    if isinstance(val, int) or isinstance(val, float):
                         val = str(val)
                     attr_ele.text = val
                 ele_slist = etree.tostringlist(ele)
