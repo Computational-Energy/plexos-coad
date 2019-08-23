@@ -87,7 +87,7 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     row_count = 0
     dbcon = sql.connect(dbfilename)
     context = etree.iterparse(xml_file, events=('end', 'start-ns', 'start'))
-    forkeys = [] # Foreign key list to add at the end of upload
+    forkeys = []  # Foreign key list to add at the end of upload
     for action, elem in context:
         if is_py2:
             action = action.decode("utf-8")
@@ -133,6 +133,9 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
                         cols[-1] += " PRIMARY KEY"
                     else:
                         forkeys.append((table_name, col_name))
+                # UID causes a lot of performance problems if it's not an int
+                elif col_name == 'uid':
+                    cols.append("'%s' INTEGER" % col_name)
                 else:
                     cols.append("'%s' TEXT"%col_name)
             c_table = "CREATE TABLE '%s'(%s)"%(table_name, ','.join(cols))
@@ -148,6 +151,9 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
             if new_col.endswith('_id'):
                 forkeys.append((table_name, new_col))
                 LOGGER.info("New FK found %s", (table_name, new_col))
+                m_table += 'INTEGER'
+            elif new_col == "uid":
+                # This causes a lot of performance problems if it's not an int
                 m_table += 'INTEGER'
             else:
                 m_table += 'TEXT'
@@ -185,6 +191,9 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
                 if col_name[:-3] == table_name and table_name not in PK_EXCEPTIONS:
                     col_cmd += " PRIMARY KEY"
                 col_cmds.append(col_cmd)
+            elif col_name == "uid":
+                # This causes a lot of performance problems if it's not an int
+                col_cmds.append("'%s' INTEGER"%col_name)
             else:
                 col_cmds.append("'%s' TEXT"%col_name)
         # Foreign key defs must be after all column definitions
@@ -198,6 +207,11 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
         dbcon.execute(c_table)
         dbcon.execute("INSERT INTO %s SELECT * FROM %s_todelete"%(table_name, table_name))
         dbcon.executescript("DROP TABLE IF EXISTS %s_todelete;"%table_name)
+    # Create indexes
+    for (orig_table, orig_col) in forkeys:
+        c_idx = "CREATE INDEX %s_%s_idx ON '%s'('%s')"%(orig_table, orig_col, orig_table, orig_col)
+        LOGGER.info(c_idx)
+        dbcon.execute(c_idx)
     # Create and populate meta data
     dbcon.execute("DROP TABLE IF EXISTS '%s';"%META_TABLE)
     c_meta = "CREATE TABLE '%s'('%s_id' INTEGER PRIMARY KEY,'name' TEXT,'value' TEXT);"
@@ -206,23 +220,29 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     dbcon.execute(meta_ins, ('namespace', namespace))
     dbcon.execute(meta_ins, ('root_element', root_element))
     # Indexes needed to speed up certain operations
-    index_list = [('attribute', 'object_id'),
-                  ('attribute_data', 'object_id'),
-                  ('attribute_data', 'attribute_id'),
-                  ('collection', 'child_class_id'),
-                  ('data', 'membership_id'),
-                  ('data', 'property_id'),
-                  ('data', 'uid'),
-                  ('tag', 'data_id'),
-                  ('text', 'data_id'),
-                  ('membership', 'parent_object_id'),
-                  ('membership', 'child_object_id'),
-                  ('object', 'class_id'),
-                  ('property', 'collection_id')]
+    index_list = [('object', 'name'),
+                  ('property', 'name'),
+                  ('data', 'uid')]
+    # index_list = [('attribute', 'object_id'),
+    #               ('attribute_data', 'object_id'),
+    #               ('attribute_data', 'attribute_id'),
+    #               ('collection', 'child_class_id'),
+    #               ('data', 'membership_id'),
+    #               ('data', 'property_id'),
+    #               ('data', 'uid'),
+    #               ('tag', 'data_id'),
+    #               ('text', 'data_id'),
+    #               ('membership', 'parent_object_id'),
+    #               ('membership', 'child_object_id'),
+    #               ('object', 'class_id'),
+    #               ('property', 'collection_id')]
     for (tablename, colname) in index_list:
         if tablename in tables and colname in tables[tablename]:
-            dbcon.execute("CREATE INDEX %s_%s_idx ON %s (%s) "%(tablename, colname, tablename, colname))
+            c_idx = "CREATE INDEX %s_%s_idx ON %s (%s) "%(tablename, colname, tablename, colname)
+            LOGGER.info(c_idx)
+            dbcon.execute(c_idx)
     dbcon.execute("CREATE INDEX object_class_id_and_name_idx ON object (class_id, name)")
+
     # Create better view of properties, substitute UID if exists in data table
     if 'data' in tables:
         cmd = """CREATE VIEW property_view AS SELECT
@@ -259,6 +279,7 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
     LOGGER.info('Loaded %s rows in %d seconds',row_count,(time.time()-start_time))
     if has_resource:
         LOGGER.info('Memory usage: %s',resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    dbcon.commit()
     return dbcon
 
 def save(dbcon, filename):
