@@ -1,5 +1,5 @@
 from coad.COAD import COAD
-from coad.ModelUtil import split_horizon, set_solver, get_horizon_slice, plex_to_datetime, datetime_to_plex
+from coad.ModelUtil import split_horizon, set_solver, plex_to_datetime, datetime_to_plex
 import datetime
 import unittest
 
@@ -30,15 +30,6 @@ class TestModelUtil(unittest.TestCase):
         self.assertIn(coad['Model'][test_no_offset], coad['System']['WECC'].get_children('Model'))
         self.assertIn(coad['Horizon'][test_no_offset], coad['System']['WECC'].get_children('Horizon'))
 
-    def test_get_horizon_slice(self):
-        coad = COAD('coad/test/Solar33P.xml')
-        test_no_offset = get_horizon_slice(coad,'M01 Cost Need 0603',8,7)
-        self.assertEqual(43843.0,test_no_offset['Chrono Date From'])
-        self.assertEqual(2.0,test_no_offset['Chrono Step Count'])
-        test_offset = get_horizon_slice(coad,'M01 Cost Need 0603',8,6,1)
-        self.assertEqual(43840.0,test_offset['Chrono Date From'])
-        self.assertEqual(3.0,test_offset['Chrono Step Count'])
-
     def test_set_solver(self):
         coad = COAD('coad/test/Solar33P.xml')
         set_solver(coad,'PP1 Xpress-MP')
@@ -49,3 +40,36 @@ class TestModelUtil(unittest.TestCase):
         '''
         self.assertEqual(plex_to_datetime(45487), datetime.datetime(2024, 7, 14, 0, 0))
         self.assertEqual(datetime_to_plex(datetime.datetime(2024, 7, 14, 0, 0)), 45487)
+
+    def test_split_horizon_split_type(self):
+        '''Test splitting a horizon on a different step type
+        '''
+        coad = COAD('coad/test/horizon_split_test.xml')
+        split_horizon(coad, 'Base', 52, 0, split_type=2)
+        test_name = 'Base_052P_OLd000_001'
+        self.assertIn(test_name, coad['Model'].keys())
+        # assertEqual will always return true with objects of the same type, even if they're different objects
+        horizons = coad['Model'][test_name].get_children("Horizon")
+        self.assertEqual(1, len(horizons))
+        self.assertEqual(test_name, horizons[0].meta['name'])
+        self.assertEqual('43831.0',coad['Horizon'][test_name]['Chrono Date From'])
+        self.assertEqual('168.0',coad['Horizon'][test_name]['Chrono Step Count'])
+        self.assertEqual('1',coad['Horizon'][test_name]['Chrono Step Type'])
+        test_name = 'Base_052P_OLd000_025'
+        horizons = coad['Model'][test_name].get_children("Horizon")
+        self.assertEqual(1, len(horizons))
+        self.assertEqual(test_name, horizons[0].meta['name'])
+        self.assertEqual('43999.0',coad['Horizon'][test_name]['Chrono Date From'])
+        self.assertEqual('168.0',coad['Horizon'][test_name]['Chrono Step Count'])
+        self.assertEqual('1',coad['Horizon'][test_name]['Chrono Step Type'])
+        test_name = 'Base_052P_OLd000_052'
+        horizons = coad['Model'][test_name].get_children("Horizon")
+        self.assertEqual(1, len(horizons))
+        self.assertEqual(test_name, horizons[0].meta['name'])
+        self.assertEqual('44188.0',coad['Horizon'][test_name]['Chrono Date From'])
+        self.assertEqual('216.0',coad['Horizon'][test_name]['Chrono Step Count'])
+        self.assertEqual('1',coad['Horizon'][test_name]['Chrono Step Type'])
+        # Make sure the original model only has the one horizon
+        horizons = coad['Model']['Base'].get_children("Horizon")
+        self.assertEqual(1, len(horizons))
+        self.assertEqual('Base', horizons[0].meta['name'])

@@ -1,8 +1,12 @@
 ''' Code relating to manipulation of Model data in PlexOS files
 '''
 import datetime
+import logging
 import sys
 
+_logger = logging.getLogger(__name__)
+# Taken from Plexos documentation
+chrono_units_per_day = [1440.0, 24.0, 1.0, 1.0/7.0]
 
 def plex_to_datetime(plex_date, datemode=0):
     '''Convert plexos date to datetime
@@ -24,7 +28,6 @@ def get_steps_per_day(horizon):
     Returns: float of steps_per_day
     '''
     # Directly maps to "Step Type" attribute
-    chrono_units_per_day = [1440.0, 24.0, 1.0, 1.0/7.0]
     step_type = 2
     if "Chrono Step Type" in horizon:
         step_type = int(horizon["Chrono Step Type"])
@@ -35,7 +38,7 @@ def get_steps_per_day(horizon):
     return steps_per_day
 
 def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
-                  write_rindex_file=False, rindex_file=sys.stdout):
+                  write_rindex_file=False, rindex_file=sys.stdout, split_type=None):
     ''' Split the horizons associated with model by creating new models and horizons for every split
 
     coad - COAD object
@@ -44,6 +47,7 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
     start_day_overlap - start horizon this many days before partition
     write_rindex_file - Whether or not to write the index file of partition information
     rindex_file - The file-like object to write the index file of parition information
+    split_type - Split as a different step type to avoid small fractions in dates
     '''
     if num_partitions > 1000:
         raise Exception('Too many partitions: must be less than 1000')
@@ -55,70 +59,56 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
         line = '{:^' + str(new_namelen) + 's},{:^19s},{:^19s}\n'
         rindex_file.write(line.format('New Model', 'Start', 'End'))
     model = coad["Model"][model_name]
+    horizon = model.get_children('Horizon')[0]
+    if split_type is None:
+        step_count =  float(horizon['Chrono Step Count'])
+        steps_per_day = get_steps_per_day(horizon)
+    else:
+        old_steps = float(horizon['Chrono Step Count'])
+        old_timespan = old_steps / chrono_units_per_day[int(horizon['Chrono Step Type'])]
+        _logger.info("Timespan is %s days", old_timespan)
+        step_count = old_timespan * chrono_units_per_day[int(split_type)]
+        _logger.info("Old step count is %s, new is %s", old_steps, step_count)
+        step_ratio = chrono_units_per_day[int(horizon['Chrono Step Type'])]/chrono_units_per_day[int(split_type)]
+        _logger.info("Step ratio is %s", step_ratio)
+        horizon_data = {"Chrono Step Type":int(split_type)}
+        # TODO: Not sure if this works correctly
+        if "Chrono At a Time" in horizon:
+            horizon_data["Chrono At a Time"] = int(horizon["Chrono At a Time"])
+        steps_per_day = get_steps_per_day(horizon_data)
+
     for i in range(1, num_partitions+1):
         new_name = '%s_%03uP_OLd%03u_%03u' % (model_name, int(num_partitions),
                                               int(start_day_overlap), i)
         # New Model and Horizon have the same name
         new_model = model.copy(new_name)
-        # New Model needs to be added as child to System
-        sys_name = list(coad['System'].keys())[0]
-        coad["System"][sys_name].set_children(new_model, replace=False)
-        horizon = model.get_children('Horizon')[0]
         new_horizon = horizon.copy(new_name)
-        slices = get_horizon_slice(coad, model_name, num_partitions, i, start_day_overlap)
-        for (name, val) in slices.items():
-            new_horizon[name] = val
         # Set this horizon as the horizon member of the new model object
-        new_model.set_children(new_horizon)
-        # New Horizon needs to be added as child to System
-        coad["System"][sys_name].set_children(new_horizon, replace=False)
+        new_model.set_children(new_horizon, replace=True)
+        new_chrono_steps = float(round(step_count/float(num_partitions)))
+        not_i = float(i != 1)
+        horizon_idx = float(i - 1)
+        steps_with_overlap = steps_per_day * float(start_day_overlap) * not_i
+        if i < num_partitions:
+            new_horizon['Chrono Step Count'] = new_chrono_steps + steps_with_overlap
+        else:
+            new_horizon['Chrono Step Count'] = step_count \
+                                               - new_chrono_steps * horizon_idx \
+                                               + steps_with_overlap
+        new_horizon['Chrono Date From'] = float(horizon['Chrono Date From']) \
+                                          + new_chrono_steps * horizon_idx / steps_per_day \
+                                          - float(start_day_overlap) * not_i
+        _logger.info("Split step count is %s", new_horizon['Chrono Step Count'])
+        # Fix step counts for other type
+        if split_type is not None:
+            new_horizon['Chrono Step Count'] = new_horizon['Chrono Step Count'] * step_ratio
         if write_rindex_file:
-            steps_per_day = get_steps_per_day(horizon)
             hor_start = new_horizon['Chrono Date From']
             hor_end = hor_start + new_horizon['Chrono Step Count']/steps_per_day
             rindex_file.write('%s,%s,%s\n'%(new_name, plex_to_datetime(hor_start),
                                             plex_to_datetime(hor_end)))
-
-def get_horizon_slice(coad, model_name, num_partitions, slice_idx, start_day_overlap=0):
-    ''' Return a dict that represents the slice of the horizon split where slice
-    starts at 1 and goes to num_partitions
-
-    coad - COAD object
-    model_name - name of the model to split horizons
-    num_partitions - number of partitions, can handle 1000 max
-    slice_idx - This horizon slice starting at 1
-    start_day_overlap - start horizon this many days before partition
-    '''
-    i = int(slice_idx)
-    if i < 1 or i > num_partitions:
-        raise Exception('Slice must be an integer between 1 and %s, provided %s'%
-                        (num_partitions, i))
-    model = coad["Model"][model_name]
-    # TODO: Get all horizons for model and create a new split - This may need
-    # uuid added to names to avoid collisions
-    horizon = model.get_children('Horizon')[0]
-    # TODO: Find out if models can have multiple horizons, naming will be ... difficult
-    ############## MUST BE A UNIQUE NAME OR SAVE WILL FAIL
-    # TODO: What does this mean? *** ALSO, REPLACE THIS MODEL NAME WITH DYNAMIC
-    #       READ FROM DICT INSTANTIATION
-    # TODO: It's pulling a lot of data from [1] instead of [0], what does this
-    #       mean?  Is [0] just saying it is set or not? Assuming so
-    new_chrono_steps = float(round(float(horizon["Chrono Step Count"])/float(num_partitions)))
-    steps_per_day = get_steps_per_day(horizon)
-    new_horizon = {}
-    not_i = float(i != 1)
-    horizon_idx = float(i - 1)
-    steps_with_overlap = steps_per_day * float(start_day_overlap) * not_i
-    if i < num_partitions:
-        new_horizon['Chrono Step Count'] = new_chrono_steps + steps_with_overlap
-    else:
-        new_horizon['Chrono Step Count'] = float(horizon['Chrono Step Count']) \
-                                           - new_chrono_steps * horizon_idx \
-                                           + steps_with_overlap
-    new_horizon['Chrono Date From'] = float(horizon['Chrono Date From']) \
-                                      + new_chrono_steps * horizon_idx / steps_per_day \
-                                      - float(start_day_overlap) * not_i
-    return new_horizon
+    # Clean up the additional children for the base model
+    model.set_children(horizon, replace=True)
 
 def set_solver(coad, solver_name):
     ''' Set the performance child of all models to solver_name
