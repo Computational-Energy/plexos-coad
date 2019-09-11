@@ -1,5 +1,5 @@
 from coad.COAD import COAD
-from coad.ModelUtil import split_horizon, set_solver, plex_to_datetime, datetime_to_plex
+from coad.ModelUtil import split_horizon, set_solver, plex_to_datetime, datetime_to_plex, set_planning_horizon
 import datetime
 import unittest
 
@@ -73,3 +73,14 @@ class TestModelUtil(unittest.TestCase):
         horizons = coad['Model']['Base'].get_children("Horizon")
         self.assertEqual(1, len(horizons))
         self.assertEqual('Base', horizons[0].meta['name'])
+        # Test planning horizon
+        test_name = 'Base_052P_OLd000_052'
+        h = coad['Horizon'][test_name]
+        set_planning_horizon(h)
+        self.assertEqual(44166, h["Date From"])
+        self.assertEqual(2, h["Step Count"])
+        self.assertEqual(3, h["Step Type"])
+        set_planning_horizon(h, step_type=1)
+        self.assertEqual('44188.0', h["Date From"])
+        self.assertEqual(10, h["Step Count"])
+        self.assertEqual(1, h["Step Type"])

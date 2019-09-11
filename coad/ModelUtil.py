@@ -1,7 +1,9 @@
 ''' Code relating to manipulation of Model data in PlexOS files
 '''
+import calendar
 import datetime
 import logging
+import pandas
 import sys
 
 _logger = logging.getLogger(__name__)
@@ -38,7 +40,8 @@ def get_steps_per_day(horizon):
     return steps_per_day
 
 def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
-                  write_rindex_file=False, rindex_file=sys.stdout, split_type=None):
+                  write_rindex_file=False, rindex_file=sys.stdout, split_type=None,
+                  planning_horizon=None):
     ''' Split the horizons associated with model by creating new models and horizons for every split
 
     coad - COAD object
@@ -48,6 +51,7 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
     write_rindex_file - Whether or not to write the index file of partition information
     rindex_file - The file-like object to write the index file of parition information
     split_type - Split as a different step type to avoid small fractions in dates
+    planning_horizon - True to set a monthly step planning horizon encompassing the split
     '''
     if num_partitions > 1000:
         raise Exception('Too many partitions: must be less than 1000')
@@ -107,6 +111,8 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
             hor_end = hor_start + new_horizon['Chrono Step Count']/steps_per_day
             rindex_file.write('%s,%s,%s\n'%(new_name, plex_to_datetime(hor_start),
                                             plex_to_datetime(hor_end)))
+        if planning_horizon:
+            set_planning_horizon(new_horizon, step_type=planning_horizon)
     # Clean up the additional children for the base model
     model.set_children(horizon, replace=True)
 
@@ -116,3 +122,54 @@ def set_solver(coad, solver_name):
     solver = coad['Performance'][solver_name]
     for model in coad['Model'].values():
         model.set_children(solver)
+
+def set_planning_horizon(horizon, step_type=3):
+    ''' Set the planning horizon to encompass all months containing the ST Schedule
+        Defaults to month planning (Step Type 3).  Planning step types:
+        Day (value = 1)
+        Week (value = 2) * TBD
+        Month (value = 3)
+        Year (value = 4) * TBD
+    '''
+    st_start = plex_to_datetime(float(horizon['Chrono Date From']))
+    st_end = plex_to_datetime(float(horizon['Chrono Date From']) + float(horizon['Chrono Step Count'])/chrono_units_per_day[int(horizon['Chrono Step Type'])])
+    if step_type == 1:
+        date_from = horizon['Chrono Date From']
+        step_count = (st_end - st_start).days + 1
+    elif step_type == 3:
+        # Get the start of the month containing Chrono Date From
+        plan_start = datetime.datetime(st_start.year, st_start.month, 1)
+        # Get the end of the month containing Chrono Date From + Chrono Step Count * Chrono Step Type
+        #(wd, last_day) = calendar.monthrange(st_end.year, st_end.month)
+        plan_end = datetime.datetime(st_end.year, st_end.month, 1)
+        # Calculate number of months
+        extra_year = st_end.year - st_start.year
+        if extra_year:
+            #subract months from year ends
+            step_count = 13 - st_start.month + st_end.month
+        else:
+            step_count = st_end.month - st_start.month + 1
+        # Set Date From
+        date_from = datetime_to_plex(plan_start)
+
+    else:
+        raise Exception("Only daily(1) and monthly(3) step types supported")
+    horizon['Date From'] = date_from
+    horizon['Step Count'] = step_count
+    horizon['Step Type'] = step_type
+
+def show_data_files(coad):
+    '''Show datafiles associated with a plexos input file.  Displays data in
+    a table format with property, object, and collection information
+    '''
+    cmd = """SELECT p.name AS property_name, o.name AS object_name, c.name AS collection_name, t.value FROM text t
+    INNER JOIN data d ON t.data_id=d.data_id
+    INNER JOIN property p ON p.property_id=d.property_id
+    INNER JOIN membership m ON d.membership_id=m.membership_id
+    INNER JOIN collection c ON m.collection_id=c.collection_id
+    INNER JOIN object o ON m.child_object_id=o.object_id
+    """
+    pandas.set_option('display.max_columns', None)
+    pandas.set_option('display.max_colwidth', -1)
+    df = pandas.read_sql(cmd, coad.dbcon)
+    print(df)
