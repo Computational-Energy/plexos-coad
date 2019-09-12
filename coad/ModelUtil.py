@@ -162,12 +162,18 @@ def show_data_files(coad):
     '''Show datafiles associated with a plexos input file.  Displays data in
     a table format with property, object, and collection information
     '''
-    cmd = """SELECT p.name AS property_name, o.name AS object_name, c.name AS collection_name, t.value FROM text t
+    cmd = """SELECT p.name AS property_name, cl.name AS object_class, o.name AS object_name,
+        c.name AS collection_name,
+        tgc.name AS tag_class, tgo.name AS tag_name, t.value FROM text t
     INNER JOIN data d ON t.data_id=d.data_id
     INNER JOIN property p ON p.property_id=d.property_id
     INNER JOIN membership m ON d.membership_id=m.membership_id
     INNER JOIN collection c ON m.collection_id=c.collection_id
     INNER JOIN object o ON m.child_object_id=o.object_id
+    INNER JOIN class cl ON cl.class_id=o.class_id
+    INNER JOIN tag tg ON tg.data_id=t.data_id
+    INNER JOIN object tgo ON tg.object_id=tgo.object_id
+    INNER JOIN class tgc ON tgo.class_id=tgc.class_id
     """
     pandas.set_option('display.max_columns', None)
     pandas.set_option('display.max_colwidth', -1)
