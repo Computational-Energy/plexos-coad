@@ -1041,6 +1041,7 @@ class ObjectDict(collections.MutableMapping):
             prop = cur.fetchone()
             # Tag object should always be ObjectDict
             tag_obj_id = tag_obj.meta['object_id']
+            # TODO: I don't think this is right, collection from membership needs to match collection for property
             cmd = "SELECT membership_id FROM membership WHERE child_object_id=? AND parent_object_id=?"
             cur.execute(cmd, [self.meta['object_id'], tag_obj_id])
             member = cur.fetchone()
@@ -1220,9 +1221,9 @@ class ObjectDict(collections.MutableMapping):
             if len(match_data) < 1:
                 default_value = self.get_class().valid_properties[parent_obj.meta['name']][str(property_id)]['default_value']
                 # Get uid for new data
-                cmd = "SELECT uid FROM data"
+                cmd = "SELECT uid FROM data ORDER BY uid DESC LIMIT 1"
                 cur.execute(cmd)
-                last_uid = max(map(int, [x[0] for x in cur.fetchall()]))
+                last_uid = int(cur.fetchone()[0])
                 cmd = "INSERT INTO data (uid,membership_id,value,property_id) VALUES (?,?,?,?)"
                 cur.execute(cmd, [str(last_uid+1), membership_id, default_value, property_id])
                 _logger.debug(cmd+":".join( [str(last_uid+1), str(membership_id), default_value, str(property_id)]))
@@ -1282,7 +1283,7 @@ class ObjectDict(collections.MutableMapping):
         peers = all_children & all_parents
         if len(parents):
             print(spacing+'    Parents (%s):'%len(parents))
-            for p in parents:
+            for p in sorted(parents):
                 msg = '        '+p
                 print(spacing + msg)
         else:
