@@ -84,3 +84,36 @@ class TestModelUtil(unittest.TestCase):
         self.assertEqual('44188.0', h["Date From"])
         self.assertEqual(10, h["Step Count"])
         self.assertEqual(1, h["Step Type"])
+
+    def test_split_horizon_split_type_multiatatime(self):
+        '''Test splitting a horizon with multiple steps at a time on a different
+         step type
+        '''
+        coad = COAD('coad/test/horizon_split_test.xml')
+        split_horizon(coad, 'MultiAtATime', 4, 0, split_type=2, planning_horizon=3)
+        test_name = 'MultiAtATime_004P_OLd000_001'
+        self.assertIn(test_name, coad['Model'].keys())
+        horizons = coad['Model'][test_name].get_children("Horizon")
+        self.assertEqual(1, len(horizons))
+        self.assertEqual(test_name, horizons[0].meta['name'])
+        h = coad['Horizon'][test_name]
+        self.assertEqual('45292.0', h['Chrono Date From'])
+        self.assertEqual('64.0', h['Chrono Step Count'])
+        self.assertEqual('1', h['Chrono Step Type'])
+        self.assertEqual('3', h['Chrono At a Time'])
+        self.assertEqual('45292', h["Date From"])
+        self.assertEqual('1', h["Step Count"])
+        self.assertEqual('3', h["Step Type"])
+        test_name = 'MultiAtATime_004P_OLd000_004'
+        self.assertIn(test_name, coad['Model'].keys())
+        horizons = coad['Model'][test_name].get_children("Horizon")
+        self.assertEqual(1, len(horizons))
+        self.assertEqual(test_name, horizons[0].meta['name'])
+        h = coad['Horizon'][test_name]
+        self.assertEqual('45316.0', h['Chrono Date From'])
+        self.assertEqual('56.0', h['Chrono Step Count'])
+        self.assertEqual('1', h['Chrono Step Type'])
+        self.assertEqual('3', h['Chrono At a Time'])
+        self.assertEqual('45292', h["Date From"])
+        self.assertEqual('2', h["Step Count"])
+        self.assertEqual('3', h["Step Type"])

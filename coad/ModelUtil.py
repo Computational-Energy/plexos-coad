@@ -2,6 +2,7 @@
 '''
 import calendar
 import datetime
+from dateutil.relativedelta import relativedelta
 import logging
 import pandas
 import sys
@@ -68,7 +69,11 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
         step_count =  float(horizon['Chrono Step Count'])
         steps_per_day = get_steps_per_day(horizon)
     else:
-        old_steps = float(horizon['Chrono Step Count'])
+        atatime = 1
+        if "Chrono At a Time" in horizon:
+            atatime = int(horizon['Chrono At a Time'])
+        old_steps = float(horizon['Chrono Step Count']) * atatime
+        #old_steps = float(horizon['Chrono Step Count'])
         old_timespan = old_steps / chrono_units_per_day[int(horizon['Chrono Step Type'])]
         _logger.info("Timespan is %s days", old_timespan)
         step_count = old_timespan * chrono_units_per_day[int(split_type)]
@@ -77,8 +82,9 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
         _logger.info("Step ratio is %s", step_ratio)
         horizon_data = {"Chrono Step Type":int(split_type)}
         # TODO: Not sure if this works correctly
-        if "Chrono At a Time" in horizon:
-            horizon_data["Chrono At a Time"] = int(horizon["Chrono At a Time"])
+        # Don't apply at a time to steps per day?
+        #if "Chrono At a Time" in horizon:
+        #    horizon_data["Chrono At a Time"] = int(horizon["Chrono At a Time"])
         steps_per_day = get_steps_per_day(horizon_data)
 
     for i in range(1, num_partitions+1):
@@ -105,7 +111,7 @@ def split_horizon(coad, model_name, num_partitions, start_day_overlap=0,
         _logger.info("Split step count is %s", new_horizon['Chrono Step Count'])
         # Fix step counts for other type
         if split_type is not None:
-            new_horizon['Chrono Step Count'] = new_horizon['Chrono Step Count'] * step_ratio
+            new_horizon['Chrono Step Count'] = new_horizon['Chrono Step Count'] * step_ratio / atatime
         if write_rindex_file:
             hor_start = new_horizon['Chrono Date From']
             hor_end = hor_start + new_horizon['Chrono Step Count']/steps_per_day
@@ -132,7 +138,10 @@ def set_planning_horizon(horizon, step_type=3):
         Year (value = 4) * TBD
     '''
     st_start = plex_to_datetime(float(horizon['Chrono Date From']))
-    st_end = plex_to_datetime(float(horizon['Chrono Date From']) + float(horizon['Chrono Step Count'])/chrono_units_per_day[int(horizon['Chrono Step Type'])])
+    atatime = 1
+    if "Chrono At a Time" in horizon:
+        atatime = int(horizon['Chrono At a Time'])
+    st_end = plex_to_datetime(float(horizon['Chrono Date From']) + float(horizon['Chrono Step Count'])* atatime/chrono_units_per_day[int(horizon['Chrono Step Type'])])
     if step_type == 1:
         date_from = horizon['Chrono Date From']
         step_count = (st_end - st_start).days + 1
@@ -179,3 +188,23 @@ def show_data_files(coad):
     pandas.set_option('display.max_colwidth', -1)
     df = pandas.read_sql(cmd, coad.dbcon)
     print(df)
+
+def show_horizon(h):
+    '''Show the horizon in human-readable datetime
+    '''
+    atatime = 1
+    if "Chrono At a Time" in h:
+        atatime = int(h['Chrono At a Time'])
+    end = plex_to_datetime(float(h['Chrono Date From']) + float(h['Chrono Step Count'])*atatime/chrono_units_per_day[int(h['Chrono Step Type'])])
+    print("Schedule:", plex_to_datetime(float(h['Chrono Date From'])), '-', end)
+    if 'Step Count' in h:
+        plan_start = plex_to_datetime(float(h['Date From']))
+        #plan_end = plex_to_datetime(float(h['Date From']) + float(h['Step Count'])/chrono_units_per_day[int(h['Step Type'])])
+        step_type = int(h['Step Type'])
+        if step_type == 3:
+            plan_end = plex_to_datetime(float(h['Date From'])) + relativedelta(months=int(h['Step Count']))
+        elif step_type == 1:
+            plan_end = plex_to_datetime(float(h['Date From'])) + relativedelta(days=int(h['Step Count']))
+        print("Planning:", plan_start, "-", plan_end)
+    else:
+        print("No Planning Horizon")
