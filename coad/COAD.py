@@ -1209,13 +1209,22 @@ class ObjectDict(collections.MutableMapping):
                  INNER JOIN collection c ON c.collection_id = m.collection_id
                  INNER JOIN property p ON c.collection_id=p.collection_id
                  WHERE m.child_object_id=? AND p.name=?"""
+        _logger.info("Looking for collections for object %s name %s ", self.meta['object_id'], name)
         cur.execute(cmd, [self.meta['object_id'], name])
         # TODO: Duplicate property names on different objects
         for (parent_object_id, membership_id, property_id) in list(cur.fetchall()):
             parent_obj = self.coad.get_by_object_id(parent_object_id)
             # Check if there is already a data for this property
-            cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=?"
-            cur.execute(cmd, [membership_id, property_id])
+            # If there is a different tag and text along with this data, a new data
+            # row must be inserted and tagged.
+            if tag != 'System.System' and tag != parent_obj.hierarchy:
+                tag_obj = self.coad.get_by_hierarchy(tag)
+                cmd = """SELECT data_id FROM property_view
+                         WHERE child_object_id=? AND name=? AND tag_object_id=?"""
+                cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id']])
+            else:
+                cmd = "SELECT data_id FROM data WHERE membership_id=? AND property_id=?"
+                cur.execute(cmd, [membership_id, property_id])
             match_data = list(cur.fetchall())
             _logger.debug("mem:%s prop:%s rc:%s", membership_id, property_id, len(match_data))
             if len(match_data) < 1:
@@ -1230,6 +1239,7 @@ class ObjectDict(collections.MutableMapping):
                 data_id = cur.lastrowid
             else:
                 data_id = match_data[0][0]
+                _logger.info("Found data_id match: %s ", data_id)
             # Check for existing text
             cmd = "SELECT data_id FROM text WHERE data_id=?"
             cur.execute(cmd, [data_id])

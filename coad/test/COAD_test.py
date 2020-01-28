@@ -388,6 +388,12 @@ class TestObjectDictProperties(unittest.TestCase):
         coad['Data File']['test_data_file'].set_text('Filename', 'another_test_filename', tag='Scenario.4HA_UC')
         result = coad['Data File']['test_data_file'].get_properties()
         self.assertEqual('0', result['Scenario.4HA_UC']['Filename'])
+        # set_text to another tag with datafile must create a new data row
+        coad['Region']['Region1'].set_text('Load', 'another_test_filename', tag='Scenario.4HA_UC')
+        cur.execute("SELECT data_id FROM property_view WHERE child_object_id=? AND name='Load'", (coad['Region']['Region1'].meta['object_id'],))
+        result = [row[0] for row in cur.fetchall()]
+        # Should be 3 with no duplicates
+        self.assertEqual(len(set(result)), 3)
 
     def test_add_set_category(self):
         '''Test category creation for class and set for object
