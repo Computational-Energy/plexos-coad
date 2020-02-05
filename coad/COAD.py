@@ -543,6 +543,10 @@ class ClassDict(collections.MutableMapping):
         cmd = "INSERT INTO object (%s) VALUES (%s)"%(','.join(["'%s'"%c for c in cols]), fill)
         _logger.info("Creating new model with data %s", vals)
         cur.execute(cmd, vals)
+        if self.meta['is_enabled'] != 'true':
+            _logger.info("Enabling class %s", self.meta['name'])
+            cmd = "UPDATE class SET is_enabled='true' WHERE class_id=?"
+            cur.execute(cmd, (self.meta['class_id'],))
         self.coad.dbcon.commit()
         # Add as child to System.System
         newobj = self[name]

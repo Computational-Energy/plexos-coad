@@ -420,6 +420,8 @@ class TestObjectDictProperties(unittest.TestCase):
         new_obj = coad['Node'].new("Test Node")
         new_obj.set_property("Allow Dump Energy", "No")
         self.assertEqual("No", new_obj.get_property("Allow Dump Energy"))
+        coad['Purchaser'].new("Mypurchase")
+        self.assertEqual('true', coad['Purchaser'].meta['is_enabled'])
 
     def test_tag_property(self):
         '''Test tagging and untagging of existing property
