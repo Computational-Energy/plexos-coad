@@ -1120,6 +1120,27 @@ class ObjectDict(collections.MutableMapping):
         for name, value in new_dict.items():
             self.set_property(name, value)
 
+    def delete_property(self, name, tag='System.System'):
+        '''Delete a property as well as all tags and text associated with it.
+        '''
+        if isinstance(tag, ObjectDict):
+            tag_obj = tag
+        else:
+            tag_obj = self.coad.get_by_hierarchy(tag)
+        cur = self.coad.dbcon.cursor()
+        cmd = "SELECT data_id FROM property_view WHERE (child_object_id=? AND name=?) AND (parent_object_id=? OR tag_object_id=?)"
+        cur.execute(cmd, [self.meta['object_id'], name, tag_obj.meta['object_id'], tag_obj.meta['object_id']])
+        all_data = list(cur.fetchall())
+        if len(all_data) == 0:
+            _logger.warn("No property values available for %s", name)
+        for (data_id,) in all_data:
+            _logger.info("Delete %s", data_id)
+            cur.execute("DELETE FROM text WHERE data_id=?", [data_id,])
+            cur.execute("DELETE FROM tag WHERE data_id=?", [data_id,])
+            cur.execute("DELETE FROM band WHERE data_id=?", [data_id,])
+            cur.execute("DELETE FROM data WHERE data_id=?", [data_id,])
+        self.coad.dbcon.commit()
+
     def tag_property(self, name, tag):
         '''Tag a property with a object.  System.System throws an exception.
             Use untag_property to fill back system properties.

@@ -257,8 +257,8 @@ class TestObjectDictProperties(unittest.TestCase):
     def test_single_properties(self):
         '''Tests related to properties with a single value
         '''
-        filename='coad/test/118-Bus.xml'
-        coad=COAD(filename)
+        filename = 'coad/test/118-Bus.xml'
+        coad = COAD(filename)
         # Get properties
         line = coad['Line']['126']
         props = {'Reactance': '0.0202', 'Max Flow': '9900', 'Min Flow': '-9900', 'Resistance': '0.00175'}
@@ -434,4 +434,16 @@ class TestObjectDictProperties(unittest.TestCase):
         g.tag_property("Load Point", tag="Scenario.DA")
         self.assertEqual(props, g.get_properties()['Scenario.DA'])
         g.untag_property("Load Point", tag="Scenario.DA")
+        self.assertNotIn("Scenario.DA", g.get_properties().keys())
+
+    def test_delete_properties(self):
+        '''Tests related to deleting properties
+        '''
+        filename = 'coad/test/RTS-96.xml'
+        coad = COAD(filename)
+        g = coad['Generator']['101-1']
+        props = {'Load Point': ['1', '2', '3', '4']}
+        g.set_property("Load Point", props['Load Point'], tag="Scenario.DA")
+        self.assertEqual(props, g.get_properties()['Scenario.DA'])
+        g.delete_property("Load Point", tag="Scenario.DA")
         self.assertNotIn("Scenario.DA", g.get_properties().keys())
