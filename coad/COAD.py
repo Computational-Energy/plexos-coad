@@ -919,6 +919,30 @@ class ObjectDict(collections.MutableMapping):
         else:
             return mapped_data
 
+    def set_property_new(self, name, value, parent='System.System', band=1,
+                         scenario=None, filename=None, date_to=None,
+                         date_from=None, pattern=None, memo=None):
+        '''Set the value of a property by name.  Inserts new data if needed.
+        TODO: Will set property is_dynamic=true and is_enabled=true if needed.
+        Required parameters:
+            name - Name of property
+            value - Value to set
+        Optional parameters:
+            parent - Membership parent object.  TODO: Will create new membership if needed
+            band - band_id.  TODO: Will increase max_band_id of property if needed
+            scenario - Scenario to tag this data with.
+            filename - Text or Data File object.  Use "Data File.object name" format
+            date_to - Datetime or string.
+            date_from - Datetime or string.
+            pattern - string
+            action - string
+            variable - Use "Variable.object name" format
+            memo - String
+        TODO: Check for existing data row matching the following criteria:
+            parent, scenario, band, filename, date_to, date_from, pattern
+        TODO: Handle data file objects that have multiple filename text
+        '''
+
     def set_property(self, name, value, tag='System.System', data_tag=None):
         '''Set the value of a property by name.  Inserts new data if needed.
         If data_tag is set, create additional tag for datafile.
@@ -1338,28 +1362,231 @@ class ObjectDict(collections.MutableMapping):
                 #self.get_class().coad.get_by_hierarchy(k).dump(recursion_level+1)
         else:
             print(spacing+'    No children')
-        # Properties
-        props = self.get_properties()
-        prop_keys = sorted(props)
-        if len(prop_keys):
-            print(spacing+'    Properties:')
-            for pkey in prop_keys:
-                print(spacing+'        '+pkey)
-                for vkey in sorted(props[pkey]):
-                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
-        else:
-            print(spacing+'    No properties')
-        # Text
-        props = self.get_text()
-        prop_keys = sorted(props)
-        if len(prop_keys):
-            print(spacing+'    Text values:')
-            for pkey in prop_keys:
-                print(spacing+'        '+pkey)
-                for vkey in sorted(props[pkey]):
-                    print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
-        else:
-            print(spacing+'    No text values')
+        # Properties demystified
+        # Start with all properties with no Scenario tag
+        # then loop through each scenario tag for property
+        # name - order ascending
+        #   band_id - location in array, order increasing
+        #     value
+        #     filename (Data File.object name if tagged with data file)
+        #     date from
+        #     date to
+        #     variable/expression if tagged object is Variable
+        #     action
+        #     pattern
+        #     memo data
+        #     period_type_id
+        core_cmd = """SELECT pc.name AS parent_class,
+        cc.name AS child_class,
+        col.name AS collection,
+        po.name AS parent_object,
+        co.name AS child_object,
+        pc.name || '.' || po.name AS parent,
+        p.name AS property,
+        CAST(d.value as text) AS value,
+        u.value AS units,
+        p.period_type_id AS period_type_id,
+        data_id
+        FROM data d
+        INNER JOIN membership m ON m.membership_id=d.membership_id
+        INNER JOIN class pc ON pc.class_id=m.parent_class_id
+        INNER JOIN class cc ON cc.class_id=m.child_class_id
+        INNER JOIN collection col ON m.collection_id=col.collection_id
+        INNER JOIN object po ON po.object_id=m.parent_object_id
+        INNER JOIN object co ON co.object_id=m.child_object_id
+        INNER JOIN property p ON p.property_id=d.property_id
+        INNER JOIN unit u ON u.unit_id=p.unit_id
+        WHERE m.child_object_id=?
+        """
+        import pandas
+        core = pandas.read_sql_query(core_cmd, self.coad.dbcon, params=[self.meta['object_id']])
+        data_ids = core["data_id"].values.tolist()
+        data_id_fmt = ",".join('?'*len(data_ids))
+        try:
+            band_cmd = "SELECT data_id, band_id FROM band WHERE data_id IN (%s)" % data_id_fmt
+            band = pandas.read_sql_query(band_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(band, how='outer', on=['data_id']).fillna(value={'band_id':1})
+        except:
+            _logger.info("No band table found")
+            core["band_id"] = 1
+        try:
+            date_from = pandas.read_sql_query("SELECT data_id, date AS date_from FROM date_from WHERE data_id IN (%s)" % data_id_fmt, self.coad.dbcon, params=data_ids)
+            #date_from['date_from'] = pandas.to_datetime(date_from['date_from']).dt.date
+            core = core.merge(date_from, how='outer', on=['data_id'])
+            core['date_from'] = pandas.to_datetime(core['date_from'])
+        except:
+            _logger.info("No date_from table found")
+            core['date_from'] = None
+        try:
+            date_to = pandas.read_sql_query("SELECT data_id, date AS date_to FROM date_to WHERE data_id IN (%s)" % data_id_fmt, self.coad.dbcon, params=data_ids)
+            #date_to['date_to'] = pandas.to_datetime(date_to['date_to']).dt.date
+            core = core.merge(date_to, how='outer', on=['data_id'])
+            core['date_to'] = pandas.to_datetime(core['date_to'])
+        except:
+            _logger.info("No date_to table found")
+            core['date_to'] = None
+        try:
+            timeslice_cmd = """SELECT data_id, value AS pattern FROM text t
+                INNER JOIN class c ON c.class_id=t.class_id
+                WHERE c.name='Timeslice' AND data_id IN (%s)""" % data_id_fmt
+            timeslice = pandas.read_sql_query(timeslice_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(timeslice, how='outer', on=['data_id'])
+        except:
+            _logger.info("No text table found")
+            core['pattern'] = None
+        try:
+            timeslice_obj_cmd = """SELECT data_id, '{Object}'||o.name AS pattern FROM tag t
+                INNER JOIN object o ON t.object_id=o.object_id
+                INNER JOIN class c ON c.class_id=o.class_id AND c.name='Timeslice'
+                WHERE data_id IN (%s)""" % data_id_fmt
+            timeslice_obj = pandas.read_sql_query(timeslice_obj_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(timeslice_obj, how='outer', on=['data_id'])
+            core["pattern"] = core["pattern_y"].fillna(core["pattern_x"])
+            core = core.drop(["pattern_y", "pattern_x"], axis=1)
+        except:
+            _logger.info("No tag table found")
+            core['pattern'] = None
+        try:
+            datafile_cmd = """SELECT data_id, value AS filename FROM text t
+                INNER JOIN class c ON c.class_id=t.class_id
+                WHERE c.name='Data File' AND data_id IN (%s)""" % data_id_fmt
+            datafile = pandas.read_sql_query(datafile_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(datafile, how='outer', on=['data_id'])
+            datatag_cmd = """SELECT t.data_id, 'Data File.'||o.name AS filename, t.object_id AS data_file_id FROM tag t
+                INNER JOIN object o ON t.object_id=o.object_id
+                INNER JOIN class c ON c.class_id=o.class_id AND c.name='Data File'
+                WHERE data_id IN (%s)""" % data_id_fmt
+            datatag = pandas.read_sql_query(datatag_cmd, self.coad.dbcon, params=data_ids)
+            # Data tags should have a single data item in them
+            datatag_ids = datatag["data_file_id"].values.tolist()
+            datatag_id_fmt = ",".join('?'*len(datatag_ids))
+            datatagfile_cmd = """SELECT t.data_id, t.value AS ref_filename, m.parent_object_id, m.child_object_id, m.collection_id  FROM data d
+            INNER JOIN membership m ON m.membership_id=d.membership_id
+            INNER JOIN property p ON p.property_id=d.property_id
+            INNER JOIN text t ON t.data_id=d.data_id
+            WHERE m.child_object_id IN (%s) AND p.name = 'Filename'
+            """ % datatag_id_fmt
+            datatag_filenames = pandas.read_sql_query(datatagfile_cmd, self.coad.dbcon, params=datatag_ids)
+            core = core.merge(datatag, how='outer', on=['data_id'])
+            core["filename"] = core["filename_y"].fillna(core["filename_x"])
+            core = core.drop(["filename_y", "filename_x"], axis=1)
+        except:
+            _logger.info("No text table found")
+            core["filename"] = None
+        try:
+            var_cmd = """SELECT t.data_id, '{Object}'||o.name AS variable, a.action_symbol AS action FROM tag t
+                INNER JOIN object o ON t.object_id=o.object_id
+                INNER JOIN class c ON c.class_id=o.class_id AND c.name='Variable'
+                INNER JOIN action a ON a.action_id=t.action_id
+                WHERE data_id IN (%s)""" % data_id_fmt
+            var = pandas.read_sql_query(var_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(var, how='outer', on=['data_id'])
+        except:
+            _logger.info("No action table found")
+            core['action'] = None
+            try:
+                var_cmd = """SELECT t.data_id, '{Object}'||o.name AS variable FROM tag t
+                    INNER JOIN object o ON t.object_id=o.object_id
+                    INNER JOIN class c ON c.class_id=o.class_id AND c.name='Variable'
+                    WHERE data_id IN (%s)""" % data_id_fmt
+                var = pandas.read_sql_query(var_cmd, self.coad.dbcon, params=data_ids)
+                core = core.merge(var, how='outer', on=['data_id'])
+            except:
+                _logger.info("No tag table found")
+                core['variable'] = None
+        try:
+            scenario_cmd = """SELECT t.data_id, 'Scenario.'||o.name AS scenario FROM tag t
+                INNER JOIN object o ON t.object_id=o.object_id
+                INNER JOIN class c ON c.class_id=o.class_id AND c.name='Scenario'
+                WHERE data_id IN (%s)""" % data_id_fmt
+            scenario = pandas.read_sql_query(scenario_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(scenario, how='outer', on=['data_id'])
+        except:
+            _logger.info("No tag table found")
+            core["scenario"] = None
+        try:
+            memo_cmd = """SELECT data_id, value as memo FROM memo_data WHERE data_id IN (%s)""" % data_id_fmt
+            memo = pandas.read_sql_query(memo_cmd, self.coad.dbcon, params=data_ids)
+            core = core.merge(memo, how='outer', on=['data_id'])
+        except:
+            _logger.info("No memo_data table found")
+            core["memo"] = None
+        # Order Core by Scenario, Prop name, band
+        #sorted_props = core.sort_values(["scenario", "property", "band_id"], ascending=[True, True, True], na_position='first')
+        sorted_props = core.sort_values(["parent", "scenario", "property", "band_id"], ascending=[True, True, True, True], na_position='first')
+        sorted_props = sorted_props.fillna({"scenario": "Base"})
+        last_parent = None
+        for idx, row in sorted_props.iterrows():
+            cur_parent = row['parent']
+            if cur_parent != last_parent:
+                print(spacing+'    %s Properties:' % cur_parent)
+                last_scenario = None
+                last_prop = None
+                last_band_id = None
+                last_parent = cur_parent
+            cur_scenario = row['scenario']
+            cur_prop = row['property']
+            cur_band_id = row['band_id']
+            if cur_scenario != last_scenario:
+                #if pandas.isna(cur_scenario) and last_scenario is None:
+                #    print(cur_scenario)
+                #    print(spacing+'      Base:')
+                #else:
+                print(spacing+'      %s:'%cur_scenario)
+                last_scenario = cur_scenario
+                print(spacing+'        %s:'%cur_prop)
+                print(spacing+'          Band %i:'%cur_band_id)
+                last_prop = cur_prop
+                last_band_id = cur_band_id
+            if cur_prop != last_prop:
+                print(spacing+'        %s:'%cur_prop)
+                print(spacing+'          Band %i:'%cur_band_id)
+                last_prop = cur_prop
+                last_band_id = cur_band_id
+            if cur_band_id != last_band_id:
+                print(spacing+'          Band %i:'%cur_band_id)
+                last_band_id = cur_band_id
+            print(spacing+'            Value = %s'%row['value'])
+            if not pandas.isna(row['filename']):
+                print(spacing+'            Filename = %s'%row['filename'])
+                # List all filenames associated with this data file object
+                df_files = datatag_filenames.loc[datatag_filenames["child_object_id"] == row["data_file_id"]]
+                for d_idx, d_name in df_files.iterrows():
+                    print(spacing+'              %s'%d_name['ref_filename'])
+            if not pandas.isna(row['date_from']):
+                print(spacing+'            Date From = %s'%row['date_from'])
+            if not pandas.isna(row['date_to']):
+                print(spacing+'            Date To = %s'%row['date_to'])
+            if not pandas.isna(row['variable']):
+                print(spacing+'            Variable = %s'%row['variable'])
+            if not pandas.isna(row['action']):
+                print(spacing+'            Action = %s'%row['action'])
+            if not pandas.isna(row['pattern']):
+                print(spacing+'            Pattern = %s'%row['pattern'])
+            if not pandas.isna(row['memo']):
+                print(spacing+'            Memo Data = %s'%row['memo'])
+        # # Properties
+        # props = self.get_properties()
+        # prop_keys = sorted(props)
+        # if len(prop_keys):
+        #     print(spacing+'    Properties:')
+        #     for pkey in prop_keys:
+        #         print(spacing+'        '+pkey)
+        #         for vkey in sorted(props[pkey]):
+        #             print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        # else:
+        #     print(spacing+'    No properties')
+        # # Text
+        # props = self.get_text()
+        # prop_keys = sorted(props)
+        # if len(prop_keys):
+        #     print(spacing+'    Text values:')
+        #     for pkey in prop_keys:
+        #         print(spacing+'        '+pkey)
+        #         for vkey in sorted(props[pkey]):
+        #             print(spacing+'            %s=%s'%(vkey, props[pkey][vkey]))
+        # else:
+        #     print(spacing+'    No text values')
 
     def print_object_attrs(self):
         ''' Prints the object's attributes in Class.Object.Attribute=Value format
