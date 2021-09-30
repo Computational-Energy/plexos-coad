@@ -445,7 +445,7 @@ class PlexosSolution(object):
                 num_rows = 1
             def chunks(line, num):
                 '''Yield chunks of line with size num'''
-                for i in xrange(0, len(line), num):
+                for i in range(0, len(line), num):
                     yield line[i:i+num]
             # SQLite3 module has inconsistent results for multiple cursors in nested loops
             allrows = finaldb.fetchall()
@@ -480,7 +480,7 @@ class PlexosSolution(object):
                     length = int(row[4])
                     out_key += [row[0]]*length
                     out_phase += [row[1]]*length
-                    out_period += xrange(1 + offset, length + offset + 1)
+                    out_period += range(1 + offset, length + offset + 1)
                 value_data = list(struct.unpack('<%dd'%len(out_period),
                                                 bin_con.read(8*len(out_period))))
                 num_read += len(value_data)

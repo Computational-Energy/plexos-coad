@@ -118,7 +118,7 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
             if result.acknowledged:
                doc_count += len(result.inserted_ids)
             else:
-               LOGGER.error("Error adding document %s to %s", doc, collection_name)
+               LOGGER.error("Error adding batch %s to %s", batch, collection_name)
             batch=[]
         batch_collection = collection_name
         # Add document to batch for this collection
