@@ -6,7 +6,8 @@ import unittest
 from coad._compat import is_py2
 
 # Only load the master once
-master_coad = COAD('coad/master.xml')
+# Skipping for github actions and out-of-date mongo functionality
+# master_coad = COAD('coad/master.xml')
 logger = logging.getLogger(__name__)
 
 @unittest.skip("Disabling mongo tests for github actions")
