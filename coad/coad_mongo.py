@@ -18,7 +18,10 @@ import atexit
 import collections
 import logging
 import os
-import pymongo
+try:
+    import pymongo
+except ImportError:
+    logging.warning("Package pymongo not found.  Module will not work.")
 import subprocess
 import sys
 import uuid
@@ -797,10 +800,11 @@ class ObjectDict(collections.MutableMapping):
                 self.clsdict.coad.db['property'].update(prop, {'$set': {'is_dynamic': 'true', 'is_enabled': 'true'}})
             # Add new data
             #last_data_id = self.clsdict.coad.db['data'].find_one(sort=[("data_id", -1)])["data_id"]
-            last_data_id = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_data_id': {'$toInt': '$data_id'}}}, {'$sort':{"int_data_id": -1}}]).next()["int_data_id"]
+            #last_data_id = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_data_id': {'$toInt': '$data_id'}}}, {'$sort':{"int_data_id": -1}}]).next()["int_data_id"]
+            last_data_id = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_data_id': {'$toInt': '$data_id'}}}, {'$sort':{"int_data_id": -1}}], allowDiskUse=True).next()["int_data_id"]
             #last_uid = self.clsdict.coad.db['data'].find_one(sort=[({'int_uid': {'$toInt': '$uid'}}, -1)])["int_uid"]
             #last_uid = self.clsdict.coad.db['data'].find_one(sort=[({'$project':{'int_uid': {'$toInt': '$uid'}}}, -1)])["int_uid"]
-            last_uid = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_uid': {'$toInt': '$uid'}}}, {'$sort':{"int_uid": -1}}]).next()["int_uid"]
+            last_uid = self.clsdict.coad.db['data'].aggregate([{'$project':{'int_uid': {'$toInt': '$uid'}}}, {'$sort':{"int_uid": -1}}], allowDiskUse=True).next()["int_uid"]
             #last_uid = last_data_id
             _logger.info("Max data id=%s max uid=%s", last_data_id, last_uid)
             #agg_result = self.clsdict.coad.db['data'].aggregate([{'$project':{'last_data_id': {'$max': '$data_id'},
