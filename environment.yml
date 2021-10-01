@@ -1,12 +1,12 @@
 name: plexos-coad
 dependencies:
-  - python=2
+  - python
   - h5py
   - numpy
   - pandas
   - cython
-  - pymongo
-  - mongodb
+#  - pymongo
+#  - mongodb
   - nose
 #  - pip:
 #    - "--editable=git+https://github.nrel.gov/hsorense/plexos-coad.git#egg=coad"
