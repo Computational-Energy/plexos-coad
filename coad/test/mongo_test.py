@@ -9,6 +9,7 @@ from coad._compat import is_py2
 master_coad = COAD('coad/master.xml')
 logger = logging.getLogger(__name__)
 
+@unittest.skip("Disabling mongo tests for github actions")
 class TestDB(unittest.TestCase):
 
     _multiprocess_can_split_=False
@@ -206,6 +207,7 @@ class TestDB(unittest.TestCase):
         self.assertEqual(val, "")
 
 
+@unittest.skip("Disabling mongo tests for github actions")
 class TestModifications(unittest.TestCase):
 
     def test_set(self):

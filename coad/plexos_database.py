@@ -113,7 +113,7 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
         table_name = elem.tag[nsl+2:]
         col_names = []
         col_values = []
-        for el_data in elem.getchildren():
+        for el_data in list(elem):
             if is_py2:
                 el_data.tag = el_data.tag.decode("utf-8")
                 # el_data.text = el_data.text.decode("utf-8")
@@ -242,7 +242,58 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
             LOGGER.info(c_idx)
             dbcon.execute(c_idx)
     dbcon.execute("CREATE INDEX object_class_id_and_name_idx ON object (class_id, name)")
-
+    # Create view of properties that matches spreadsheet
+    if 'data' in tables:
+        cmd = """CREATE VIEW property_spreadsheet AS SELECT pc.name AS parent_class,
+        cc.name AS child_class,
+        col.name AS collection,
+        po.name AS parent_object,
+        co.name AS child_object,
+        p.name AS property,
+        CASE WHEN b.band_id IS NULL
+        THEN 1
+        ELSE b.band_id END AS band_id,
+        d.value AS value,
+        u.value AS units,
+        df.date AS date_from,
+        dt.date AS date_to,
+        pat.value AS pattern, -- text for class Timeslice
+        var.action_symbol AS action, -- exist for tags with class Variable
+        '{Object}'||var.name AS variable, -- tags with class Variable
+        fn.value AS filename, -- text for class Data File
+        '{Object}'||scen.name AS scenario, -- tags with class Scenario
+        md.value AS memo,
+        p.period_type_id AS period_type_id,
+        d.data_id AS data_id
+        FROM data d
+        INNER JOIN membership m ON m.membership_id=d.membership_id
+        INNER JOIN class pc ON pc.class_id=m.parent_class_id
+        INNER JOIN class cc ON cc.class_id=m.child_class_id
+        INNER JOIN collection col ON m.collection_id=col.collection_id
+        INNER JOIN object po ON po.object_id=m.parent_object_id
+        INNER JOIN object co ON co.object_id=m.child_object_id
+        INNER JOIN property p ON p.property_id=d.property_id
+        INNER JOIN unit u ON u.unit_id=p.unit_id
+        LEFT OUTER JOIN band b ON b.data_id=d.data_id
+        LEFT OUTER JOIN date_from df ON df.data_id=d.data_id
+        LEFT OUTER JOIN date_to dt ON dt.data_id=d.data_id
+        LEFT OUTER JOIN text pat ON pat.data_id=d.data_id AND pat.class_id=(SELECT class_id FROM class WHERE name='Timeslice')
+        LEFT OUTER JOIN (SELECT o.name, t.data_id, a.action_symbol FROM tag t
+            INNER JOIN object o ON t.object_id=o.object_id
+            INNER JOIN class c ON c.class_id=o.class_id AND c.name='Variable'
+            INNER JOIN action a ON a.action_id=t.action_id
+            ) var ON d.data_id=var.data_id
+        LEFT OUTER JOIN text fn ON fn.data_id=d.data_id AND fn.class_id=(SELECT class_id FROM class WHERE name='Data File')
+        LEFT OUTER JOIN (SELECT o.name, t.data_id FROM tag t
+            INNER JOIN object o ON t.object_id=o.object_id
+            INNER JOIN class c ON c.class_id=o.class_id AND c.name='Scenario'
+            ) scen ON d.data_id=scen.data_id
+        LEFT OUTER JOIN memo_data md ON md.data_id=d.data_id
+        """
+        try:
+            dbcon.execute(cmd)
+        except:
+            LOGGER.warning("Unable to create spreadsheet view, input file may be too old")
     # Create better view of properties, substitute UID if exists in data table
     if 'data' in tables:
         cmd = """CREATE VIEW property_view AS SELECT
@@ -274,7 +325,7 @@ def load(source, dbfilename=None, create_db_file=True, remove_invalid_chars=Fals
             subs['textjoin'] = "LEFT OUTER JOIN text ON text.data_id = data.data_id"
         if 'band' in tables:
             subs['band'] = "band.band_id"
-            subs['bandjoin'] = "LEFT JOIN band ON band.data_id = data.data_id"
+            subs['bandjoin'] = "LEFT OUTER JOIN band ON band.data_id = data.data_id"
         dbcon.execute(cmd.format(**subs))
     LOGGER.info('Loaded %s rows in %d seconds',row_count,(time.time()-start_time))
     if has_resource:

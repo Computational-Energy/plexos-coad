@@ -123,7 +123,7 @@ def load(source, reset_db=True, host='localhost', port=27017, remove_invalid_cha
         batch_collection = collection_name
         # Add document to batch for this collection
         doc = {}
-        for el_data in elem.getchildren():
+        for el_data in list(elem):
             el_name = el_data.tag[nsl:]
             if el_data.text is None:
                 LOGGER.warn("Found null value for %s:%s, inserting blank string", collection_name, el_data.tag[nsl:])
