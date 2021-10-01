@@ -3,17 +3,23 @@
 import codecs
 import logging
 import os
-import pymongo
+try:
+    import pymongo
+except ImportError:
+    logging.warning("Package pymongo not found.  Module will not work.")
 has_resource = False
 try:
     # unix-specific package
     import resource
     has_resource = True
-except ImportError: pass
+except ImportError:
+    pass
 import sys
 import tempfile
 import time
 import xml.etree.cElementTree as etree
+
+LOGGER = logging.getLogger(__name__)
 
 # A meta table is needed to record certain properties of the XML file that
 # aren't part of the data stored within
@@ -24,7 +30,6 @@ PK_EXCEPTIONS = ['band']
 
 # Some common invalid chars found in the xml
 INVALID_CHARS = ['&#x08;', '&#x8;']
-LOGGER = logging.getLogger(__name__)
 
 # Batch size to use when inserting documents
 # For very large files (400MB) on a laptop
